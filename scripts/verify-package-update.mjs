@@ -6,6 +6,41 @@ import { pathToFileURL } from "node:url";
 
 import { exec, json } from "./lib/verify-package-core.mjs";
 
+const NPM_REGISTRY_ORIGIN = "https://registry.npmjs.org";
+const ALLOWED_UPSTREAM_HOSTS = new Set(["registry.npmjs.org"]);
+const REGISTRY_SEGMENT = /^(?:@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9@._~-]+$/u;
+
+/** Map a local request pathname to a fixed npm registry URL, or undefined if unsafe. */
+export function npmRegistryUrl(pathname) {
+  if (typeof pathname !== "string" || !pathname.startsWith("/")) return undefined;
+  let segments;
+  try {
+    segments = pathname.slice(1).split("/").map((s) => decodeURIComponent(s));
+  } catch {
+    return undefined;
+  }
+  if (
+    segments.length === 0 ||
+    segments.length > 4 ||
+    segments.some(
+      (s) => s === "" || s === "." || s === ".." || !REGISTRY_SEGMENT.test(s),
+    )
+  )
+    return undefined;
+  const url = new URL(
+    `${NPM_REGISTRY_ORIGIN}/${segments.map((s) => encodeURIComponent(s)).join("/")}`,
+  );
+  if (
+    url.protocol !== "https:" ||
+    !ALLOWED_UPSTREAM_HOSTS.has(url.hostname) ||
+    url.port !== "" ||
+    url.username !== "" ||
+    url.password !== ""
+  )
+    return undefined;
+  return url.href;
+}
+
 /** Exercise the packaged updater with real npm and a local release registry fixture. */
 export async function verifyPackageUpdate({
   prefix,
@@ -56,19 +91,15 @@ export async function verifyPackageUpdate({
       response.setHeader("Content-Type", "application/json");
       response.end("{}");
     } else {
-      // Pathname-only proxy to the public npm registry (CodeQL js/request-forgery).
-      // Never concatenate request.url — absolute URLs / host injection must not escape.
-      if (pathname.includes("..")) {
+      // Proxy only npm package-metadata/tarball paths to a fixed upstream host
+      // (CodeQL js/request-forgery). The URL is built from a constant base plus
+      // individually validated, percent-encoded path segments; the query string
+      // and anything that is not a plain registry path is rejected.
+      const upstreamUrl = npmRegistryUrl(pathname);
+      if (upstreamUrl === undefined) {
         response.writeHead(400).end();
         return;
       }
-      const upstreamUrl = new URL(pathname, "https://registry.npmjs.org");
-      if (upstreamUrl.origin !== "https://registry.npmjs.org") {
-        response.writeHead(400).end();
-        return;
-      }
-      const search = new URL(request.url ?? "/", "http://127.0.0.1").search;
-      if (search) upstreamUrl.search = search;
       const upstream = await fetch(upstreamUrl);
       response.writeHead(upstream.status, {
         "Content-Type":
