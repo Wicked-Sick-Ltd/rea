@@ -56,7 +56,20 @@ export async function verifyPackageUpdate({
       response.setHeader("Content-Type", "application/json");
       response.end("{}");
     } else {
-      const upstream = await fetch(`https://registry.npmjs.org${request.url}`);
+      // Pathname-only proxy to the public npm registry (CodeQL js/request-forgery).
+      // Never concatenate request.url — absolute URLs / host injection must not escape.
+      if (pathname.includes("..")) {
+        response.writeHead(400).end();
+        return;
+      }
+      const upstreamUrl = new URL(pathname, "https://registry.npmjs.org");
+      if (upstreamUrl.origin !== "https://registry.npmjs.org") {
+        response.writeHead(400).end();
+        return;
+      }
+      const search = new URL(request.url ?? "/", "http://127.0.0.1").search;
+      if (search) upstreamUrl.search = search;
+      const upstream = await fetch(upstreamUrl);
       response.writeHead(upstream.status, {
         "Content-Type":
           upstream.headers.get("content-type") ?? "application/octet-stream",

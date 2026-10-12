@@ -148,8 +148,17 @@ function rewriteWebSocketEndpoints(value, server) {
 }
 
 async function upstreamJson(endpoint, path) {
-  const response = await fetch(new URL(path, endpoint));
+  // Allow-list discovery paths only (CodeQL js/request-forgery / SSRF).
+  // Remap to a fixed string so the fetch URL is not attacker-controlled.
+  const allowed = {
+    "/json/version": "/json/version",
+    "/json/list": "/json/list",
+  };
+  const safePath = allowed[path];
+  if (safePath === undefined)
+    throw new Error(`Disallowed CDP discovery path: ${path}`);
+  const response = await fetch(new URL(safePath, endpoint));
   if (!response.ok)
-    throw new Error(`Upstream CDP ${path} returned ${response.status}`);
+    throw new Error(`Upstream CDP ${safePath} returned ${response.status}`);
   return await response.json();
 }
