@@ -13,7 +13,7 @@ import { GhidraSessionError } from "./GhidraSessionError.js";
 import { GHIDRA_SESSION_CAPABILITIES } from "./GhidraSessionValues.js";
 
 const TARGET: BinaryTarget = {
-  path: "/tmp/ghidra-cache-fixture",
+  path: "/var/empty/ghidra-cache-fixture",
   sha256: "a".repeat(64),
   kind: "executable",
   format: "elf",

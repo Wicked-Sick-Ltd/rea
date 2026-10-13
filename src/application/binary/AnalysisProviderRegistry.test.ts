@@ -18,13 +18,13 @@ import { projectAnalysisError } from "../../domain/analysisErrorProjection.js";
 import { err, ok } from "../../domain/result.js";
 
 const DATABASE_TARGET: BinaryTarget = {
-  path: "/tmp/fixture.hop",
+  path: "/var/empty/fixture.hop",
   sha256: "a".repeat(64),
   kind: "database",
   format: "analysis-database",
 };
 const ARTIFACT_TARGET: BinaryTarget = {
-  path: "/tmp/app.asar",
+  path: "/var/empty/app.asar",
   sha256: "b".repeat(64),
   kind: "archive",
   format: "asar",

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, readFile, stat } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import { relative, sep } from "node:path";
 
 import { parseArtifactInventoryEvidence } from "../../../dist/domain/artifactInventoryEvidence.js";
@@ -10,13 +10,16 @@ import {
 
 /** Verify native file roles and permissions on the real compiled bundle fixture. */
 export async function verifyMachOOccurrences(app, executable) {
-  const originalMode = (await stat(executable)).mode & 0o7777;
-  const originalBytes = await readFile(executable);
+  const fh = await open(executable, "r+");
+  let originalMode;
+  let originalBytes;
   const logicalPath = relative(app, executable).split(sep).join("/");
   const observations = [];
   try {
+    originalMode = (await fh.stat()).mode & 0o7777;
+    originalBytes = await fh.readFile();
     for (const mode of [0o755, 0o644]) {
-      await chmod(executable, mode);
+      await fh.chmod(mode);
       const directEvidence = await artifactCliEvidence(
         "inspect-artifact",
         executable,
@@ -73,7 +76,7 @@ export async function verifyMachOOccurrences(app, executable) {
       });
     }
     assert.equal(observations[0].artifact_id, observations[1].artifact_id);
-    assert.deepEqual(await readFile(executable), originalBytes);
+    assert.deepEqual(await fh.readFile(), originalBytes);
     return {
       direct_cli: true,
       contained_cli_mcp: true,
@@ -81,6 +84,7 @@ export async function verifyMachOOccurrences(app, executable) {
       observations,
     };
   } finally {
-    await chmod(executable, originalMode);
+    if (originalMode !== undefined) await fh.chmod(originalMode);
+    await fh.close();
   }
 }

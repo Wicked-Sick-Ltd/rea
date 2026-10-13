@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
 import { ApktoolResourceAnalysisService } from "../dist/application/apktool/ApktoolResourceAnalysisService.js";
 import { createApktoolResourceAnalysisProvider } from "../dist/composition/apktool.js";
@@ -53,10 +53,10 @@ try {
       include_strings: true,
     });
     if (decoded !== null) {
-      const bytes = await stat(options.apk).then((info) => info.size);
-      const digest = createHash("sha256")
-        .update(await readFile(options.apk))
-        .digest("hex");
+      // Single read — size from buffer avoids check-then-act TOCTOU.
+      const body = await readFile(options.apk);
+      const bytes = body.byteLength;
+      const digest = createHash("sha256").update(body).digest("hex");
       check(
         "decoded target identity matches the file on disk",
         decoded.target.bytes === bytes && decoded.target.sha256 === digest,

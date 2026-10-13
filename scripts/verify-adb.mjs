@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -207,12 +207,10 @@ if (serial !== null) {
           `${pull.artifacts.length} artifact(s), coverage=${pull.coverage}, roles=${pull.artifacts.map((a) => a.role).join(",")}`,
         );
         for (const artifact of pull.artifacts) {
-          const bytes = await stat(artifact.local_path).then(
-            (info) => info.size,
-          );
-          const digest = createHash("sha256")
-            .update(await readFile(artifact.local_path))
-            .digest("hex");
+          // Single read — size from buffer avoids check-then-act TOCTOU.
+          const body = await readFile(artifact.local_path);
+          const bytes = body.byteLength;
+          const digest = createHash("sha256").update(body).digest("hex");
           check(
             `artifact digest matches on disk: ${artifact.file_name}`,
             bytes === artifact.bytes && digest === artifact.sha256,

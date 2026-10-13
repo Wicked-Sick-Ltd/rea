@@ -184,13 +184,7 @@ const bindSignatureTarget = async (
 ): Promise<Result<SignatureTargetBinding, AnalysisError>> => {
   try {
     signal?.throwIfAborted();
-    const before = await lstat(target.path, { bigint: true });
-    signal?.throwIfAborted();
-    if (!before.isFile() || before.isSymbolicLink())
-      return changedTarget(
-        target,
-        `Signature target is no longer a regular file: ${target.path}`,
-      );
+    // Open first (O_NOFOLLOW) then fstat — avoids check-then-act TOCTOU on the path.
     const file = await open(
       target.path,
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
@@ -198,10 +192,10 @@ const bindSignatureTarget = async (
     try {
       const opened = await file.stat({ bigint: true });
       signal?.throwIfAborted();
-      if (identity(opened) !== identity(before))
+      if (!opened.isFile())
         return changedTarget(
           target,
-          `Signature target changed before open: ${target.path}`,
+          `Signature target is no longer a regular file: ${target.path}`,
         );
       const snapshot = await snapshotIO(target, "create-file", () =>
         open(snapshotPath, "wx", 0o600),
