@@ -34,7 +34,7 @@ describe("Hopper analysis profiles", () => {
   it("does not map caller-supplied raw binaries onto a Hopper loader", () => {
     expect(
       hopperLoaderArgsForTarget({
-        path: "/tmp/ecu.bin",
+        path: "/var/empty/ecu.bin",
         sha256: "a".repeat(64),
         kind: "executable",
         format: "raw-binary",
@@ -144,7 +144,7 @@ const target = (
 ): BinaryTarget =>
   format === "pe"
     ? {
-        path: "/tmp/fixture",
+        path: "/var/empty/fixture",
         sha256: "a".repeat(64),
         kind: "executable",
         format,
@@ -154,7 +154,7 @@ const target = (
         managed: false,
       }
     : {
-        path: "/tmp/fixture",
+        path: "/var/empty/fixture",
         sha256: "a".repeat(64),
         kind: "executable",
         format,

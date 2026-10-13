@@ -1082,10 +1082,14 @@ const requireRegularPlist = async (
   requested: string | undefined,
 ): Promise<Result<null, AnalysisError>> => {
   try {
-    if (!(await stat(path)).isFile())
-      return err(unreadablePlist(path, requested, "it is not a regular file"));
-    // Opening also observes ACL and macOS privacy denials that stat permits.
-    await (await open(path, "r")).close();
+    // Open then fstat — avoids check-then-act TOCTOU between stat and open.
+    const handle = await open(path, "r");
+    try {
+      if (!(await handle.stat()).isFile())
+        return err(unreadablePlist(path, requested, "it is not a regular file"));
+    } finally {
+      await handle.close();
+    }
     return ok(null);
   } catch (cause: unknown) {
     const code =

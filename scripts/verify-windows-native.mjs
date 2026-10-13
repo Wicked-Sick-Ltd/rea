@@ -115,7 +115,7 @@ process.stdout.write(JSON.stringify({executable:basename(process.execPath),abiVe
   try {
     for (const requested of [
       source.replaceAll("\\", "/"),
-      source.replace(/\\/u, "/"),
+      source.replace(/\\/gu, "/"),
     ]) {
       const admitted = native.call("open", [requested]);
       try {
@@ -182,7 +182,7 @@ process.stdout.write(JSON.stringify({executable:basename(process.execPath),abiVe
   assert.equal(await exists(driveRootRuntime.path), false);
   report.controls.driveRootRuntimeParent = true;
   const snapshotOwner = WindowsPrivateRuntime.create(
-    workspace.replace(/\\/u, "/"),
+    workspace.replace(/\\/gu, "/"),
     "single-flight-",
   );
   try {

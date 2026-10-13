@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { ConfigurationError } from "../domain/configurationErrors.js";
@@ -48,13 +48,15 @@ export const readIdaConfiguration = (
   path: string,
 ): Result<IdaConfiguration, ConfigurationError> => {
   try {
-    if (statSync(path).size > 65_536)
+    // Single read — size from buffer avoids check-then-act TOCTOU with prior statSync.
+    const raw = readFileSync(path, "utf8");
+    if (Buffer.byteLength(raw, "utf8") > 65_536)
       return err(
         idaConfigurationError(
           "REA_IDA_MCP_CONFIG exceeds the 64 KiB registration size.",
         ),
       );
-    const input: unknown = JSON.parse(readFileSync(path, "utf8"));
+    const input: unknown = JSON.parse(raw);
     const envelope = z
       .object({ mcpServers: z.object({ "ida-pro-mcp": z.unknown() }) })
       .safeParse(input);

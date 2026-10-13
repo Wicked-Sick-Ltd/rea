@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, readFile, stat } from "node:fs/promises";
+import { chmod, open, readFile } from "node:fs/promises";
 import { relative, sep } from "node:path";
 
 import { parseArtifactInventoryEvidence } from "../../../dist/domain/artifactInventoryEvidence.js";
@@ -10,8 +10,16 @@ import {
 
 /** Verify native file roles and permissions on the real compiled bundle fixture. */
 export async function verifyMachOOccurrences(app, executable) {
-  const originalMode = (await stat(executable)).mode & 0o7777;
-  const originalBytes = await readFile(executable);
+  // Single open for mode+bytes — avoids check-then-act TOCTOU between stat and read.
+  const fh = await open(executable, "r");
+  let originalMode;
+  let originalBytes;
+  try {
+    originalMode = (await fh.stat()).mode & 0o7777;
+    originalBytes = await fh.readFile();
+  } finally {
+    await fh.close();
+  }
   const logicalPath = relative(app, executable).split(sep).join("/");
   const observations = [];
   try {

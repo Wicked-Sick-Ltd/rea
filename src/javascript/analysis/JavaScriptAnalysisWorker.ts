@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
@@ -562,7 +562,9 @@ export class JavaScriptAnalysisWorker {
     if (this.#root === undefined)
       throw new TypeError("JavaScript checkpoint has no owned runtime");
     const path = join(this.#root.path, `${id}.static.json`);
-    const bytes = (await stat(path)).size;
+    // Single read — size from bytes avoids check-then-act TOCTOU with prior stat.
+    const text = await readFile(path, "utf8");
+    const bytes = Buffer.byteLength(text, "utf8");
     if (
       bytes > DEFAULTS.checkpointBytes ||
       (expected !== undefined && expected.bytes !== bytes)
@@ -583,7 +585,6 @@ export class JavaScriptAnalysisWorker {
         "The parent's remaining heap cannot safely decode the completed JavaScript static checkpoint",
         { ...this.#limits(), checkpoint_bytes: bytes },
       );
-    const text = await readFile(path, "utf8");
     if (
       expected !== undefined &&
       createHash("sha256").update(text).digest("hex") !== expected.sha256

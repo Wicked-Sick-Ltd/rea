@@ -240,12 +240,10 @@ const createElectronActiveBoundaryPatches = ({
       try {
         const fs = require("node:fs");
         const crypto = require("node:crypto");
-        const stat = fs.statSync(filename);
-        if (stat.isFile() && stat.size <= 16 * 1024 * 1024)
-          digest = crypto
-            .createHash("sha256")
-            .update(fs.readFileSync(filename))
-            .digest("hex");
+        // Single read — size from buffer avoids check-then-act TOCTOU.
+        const body = fs.readFileSync(filename);
+        if (body.length <= 16 * 1024 * 1024)
+          digest = crypto.createHash("sha256").update(body).digest("hex");
       } catch {
         digest = null;
       }
