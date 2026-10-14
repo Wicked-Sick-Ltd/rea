@@ -1,0 +1,52 @@
+#cloud-config
+# REA analysis VM (Ubuntu 24.04). provision-vm.sh replaces __SSH_KEY__.
+# `ops` administers the box; `rea` runs the agent and REA without sudo, so a
+# hostile target that escapes the analysis engine lands in an unprivileged user.
+hostname: rea-lab
+users:
+  - name: ops
+    groups: [sudo]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys: [__SSH_KEY__]
+  - name: rea
+    shell: /bin/bash
+    ssh_authorized_keys: [__SSH_KEY__]
+ssh_pwauth: false
+package_update: true
+package_upgrade: true
+packages:
+  - qemu-guest-agent
+  - openjdk-21-jdk-headless
+  - unzip
+  - xz-utils
+  - curl
+  - git
+write_files:
+  - path: /etc/profile.d/rea.sh
+    content: |
+      export GHIDRA_INSTALL_DIR=/opt/ghidra_12.1.4_PUBLIC
+      export GHIDRA_HEADLESS_MAXMEM=8G
+runcmd:
+  - systemctl enable --now qemu-guest-agent
+  # Node 24 from nodejs.org, checked against its published SHA-256 list.
+  - |
+    set -eu
+    cd /tmp
+    base=https://nodejs.org/dist/latest-v24.x
+    curl -fsSLO "$base/SHASUMS256.txt"
+    f=$(awk '/linux-x64\.tar\.xz$/ {print $2}' SHASUMS256.txt)
+    curl -fsSLO "$base/$f"
+    grep " $f\$" SHASUMS256.txt | sha256sum -c
+    tar -xJf "$f" -C /usr/local --strip-components=1
+  # Ghidra 12.1.4 (the version REA's bridge is verified against), pinned by digest.
+  - |
+    set -eu
+    curl -fsSLo /tmp/ghidra.zip https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip
+    echo "ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db  /tmp/ghidra.zip" | sha256sum -c
+    unzip -q /tmp/ghidra.zip -d /opt
+    rm /tmp/ghidra.zip
+  # REA pinned; bump deliberately (see README "Updating").
+  - /usr/local/bin/npm install --global rea-agents@6.4.0 @anthropic-ai/claude-code
+  - install -d -o rea -g rea -m 0750 /srv/rea /srv/rea/targets /srv/rea/work
+final_message: "rea-lab ready after $UPTIME s"
