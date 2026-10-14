@@ -174,7 +174,18 @@ const sendEchoWithProgress = (send, request) => {
   };
   if (typeof request.params?.gate === "string")
     heldReplies.set(request.id, reply);
-  else setTimeout(reply, request.params?.delay ?? 0);
+  else setTimeout(reply, boundedReplyDelay(request.params?.delay));
+};
+
+// Requests pick their own reply delay. Clamp it so a malformed or hostile
+// request cannot park a timer for an unbounded time (CodeQL
+// js/resource-exhaustion). Tests only ask for a few milliseconds.
+const MAX_REPLY_DELAY_MS = 60_000;
+const boundedReplyDelay = (value) => {
+  const delay = Number(value ?? 0);
+  if (!Number.isFinite(delay) || delay <= 0) return 0;
+  if (delay > MAX_REPLY_DELAY_MS) return MAX_REPLY_DELAY_MS;
+  return delay;
 };
 
 const server = createServer((socket) => {

@@ -20,6 +20,8 @@ const answer = await new Promise((resolve) =>
 prompt.close();
 const child = spawn(process.execPath, ["-e", "process.stdout.write('child')"]);
 const server = createServer((request, response) => {
+  // JSON, not HTML: reflecting the request path cannot become script.
+  response.writeHead(200, { "content-type": "application/json" });
   response.end(JSON.stringify({ path: request.url, answer }));
 });
 server.listen(Number(configuration.port ?? 0), "127.0.0.1");

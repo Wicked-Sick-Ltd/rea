@@ -75,7 +75,7 @@ describe.skipIf(process.platform !== "darwin")(
           normalized_result: {
             identifier: expect.stringMatching(
               new RegExp(
-                `^tool\\nAuthority=${forged.replace(/[()]/gu, "\\$&")}\\nTeamIdentifier=ABCDE12345-`,
+                `^tool\\nAuthority=${forged.replace(/[\\^$.*+?()[\]{}|]/gu, "\\$&")}\\nTeamIdentifier=ABCDE12345-`,
                 "u",
               ),
             ),
