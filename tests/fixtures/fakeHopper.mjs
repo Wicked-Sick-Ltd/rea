@@ -184,7 +184,8 @@ const MAX_REPLY_DELAY_MS = 60_000;
 const boundedReplyDelay = (value) => {
   const delay = Number(value ?? 0);
   if (!Number.isFinite(delay) || delay <= 0) return 0;
-  return Math.min(delay, MAX_REPLY_DELAY_MS);
+  if (delay > MAX_REPLY_DELAY_MS) return MAX_REPLY_DELAY_MS;
+  return delay;
 };
 
 const server = createServer((socket) => {
