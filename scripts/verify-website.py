@@ -258,7 +258,10 @@ def check_search_metadata(site, pages):
 
     sitemap_path = site / "sitemap.xml"
     try:
-        sitemap = ET.parse(sitemap_path).getroot()
+        # Reviewed (Semgrep use-defused-xml-parse): sitemap.xml is our own build
+        # output from scripts/prepare-website.py, not untrusted input, and stdlib
+        # expat does not fetch external entities.
+        sitemap = ET.parse(sitemap_path).getroot()  # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse
         namespace = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
         urls = [entry.findtext(f"{namespace}loc") for entry in sitemap]
         if sitemap.tag != f"{namespace}urlset" or any(
@@ -374,7 +377,9 @@ def check_site(site):
 
     for path in sorted(site.rglob("*.svg")):
         try:
-            ET.parse(path)
+            # Reviewed (Semgrep use-defused-xml-parse): only checks that the
+            # site's own committed SVG assets are well-formed XML.
+            ET.parse(path)  # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse
         except ET.ParseError as error:
             errors.append(f"{path.relative_to(site)}: invalid SVG XML: {error}")
     indexable, metadata_errors = check_search_metadata(site, pages)
