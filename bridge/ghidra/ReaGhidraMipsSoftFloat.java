@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.regex.Pattern;
+import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.transform.OutputKeys;
 import javax.xml.transform.TransformerFactory;
@@ -119,7 +120,11 @@ public final class ReaGhidraMipsSoftFloat extends GhidraScript {
       throw new IllegalStateException("Default prototype has no floating-point entries to remove");
     for (Node node : removed) node.getParentNode().removeChild(node);
     StringWriter xml = new StringWriter();
-    var transformer = TransformerFactory.newInstance().newTransformer();
+    TransformerFactory transformerFactory = TransformerFactory.newInstance();
+    // Never resolve external DTDs or stylesheets while serialising (XXE).
+    transformerFactory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+    transformerFactory.setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
+    var transformer = transformerFactory.newTransformer();
     transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
     transformer.transform(new DOMSource(document), new StreamResult(xml));
     return xml.toString();

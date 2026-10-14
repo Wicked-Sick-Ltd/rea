@@ -71,6 +71,11 @@ async function run() {
 
 function runCommand() {
   return new Promise((resolveResult, reject) => {
+    // Reviewed (Semgrep spawn-shell-true): the shell is used on Windows only,
+    // where npm/npx and other .cmd shims cannot be spawned without one (Node
+    // refuses since CVE-2024-27980). The argv is the developer's own command
+    // line from package.json scripts, never remote input.
+    // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true
     child = spawn(command[0], command.slice(1), {
       cwd: process.cwd(),
       env: process.env,

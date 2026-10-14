@@ -61,7 +61,10 @@ class WebsiteSearchChecks(unittest.TestCase):
             def urls():
                 with contextlib.redirect_stdout(io.StringIO()):
                     PREPARE.prepare_sitemap(site)
-                sitemap = ET.parse(site / "sitemap.xml")
+                # Reviewed (Semgrep use-defused-xml-parse): this parses the sitemap the
+                # test just generated in a temp dir. Stdlib expat does not fetch
+                # external entities, and the input is never untrusted.
+                sitemap = ET.parse(site / "sitemap.xml")  # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse
                 return {node.text for node in sitemap.findall(".//{*}loc")}
 
             self.assertEqual(
