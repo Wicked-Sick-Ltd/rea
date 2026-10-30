@@ -952,6 +952,11 @@ const isExpectedAbort = (
   (cause === signal.reason ||
     (cause instanceof Error && cause.name === "AbortError"));
 
+const DEFAULT_PS_FALLBACK_PATHS = ["/usr/bin/ps", "/bin/ps"] as const;
+
+const isMissingExecutableError = (cause: unknown): boolean =>
+  cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+
 /** Create the operating-system process inspector for an explicit host context. */
 export const createSystemProcessOwnershipHost = (
   platform: NodeJS.Platform = process.platform,
@@ -963,8 +968,11 @@ export const createSystemProcessOwnershipHost = (
     readonly darwinModuleCachePath?: string;
     /** Deadline for Darwin ownership-helper compilation. */
     readonly compileTimeoutMs?: number;
+    /** Override the absolute fallback paths consulted when `ps` is absent from PATH. */
+    readonly psFallbackPaths?: readonly string[];
   } = {},
 ): ProcessOwnershipHost => {
+  const psFallbackPaths = options.psFallbackPaths ?? DEFAULT_PS_FALLBACK_PATHS;
   const darwinModuleCachePath =
     options.darwinModuleCachePath ??
     hostEnvironment.REA_DARWIN_MODULE_CACHE_PATH;
@@ -990,16 +998,36 @@ export const createSystemProcessOwnershipHost = (
             : { compileTimeoutMs: options.compileTimeoutMs }),
         })
       : undefined;
+  const runPs = async (arguments_: readonly string[], signal?: AbortSignal) => {
+    const execOptions = {
+      env: hostEnvironment,
+      stopSignal: "SIGTERM" as const,
+      ...(signal === undefined ? {} : { signal }),
+    };
+    try {
+      return await execFileOutput("ps", arguments_, execOptions);
+    } catch (cause: unknown) {
+      if (isExpectedAbort(cause, signal) || !isMissingExecutableError(cause))
+        throw cause;
+      for (const candidate of psFallbackPaths) {
+        try {
+          return await execFileOutput(candidate, arguments_, execOptions);
+        } catch (fallbackCause: unknown) {
+          if (
+            isExpectedAbort(fallbackCause, signal) ||
+            !isMissingExecutableError(fallbackCause)
+          )
+            throw fallbackCause;
+        }
+      }
+      throw cause;
+    }
+  };
   const listProcesses = async (signal?: AbortSignal) => {
     if (platform === "win32") return [];
-    const { stdout } = await execFileOutput(
-      "ps",
+    const { stdout } = await runPs(
       ["-axo", "pid=,ppid=,pgid=,uid=,stat=,command="],
-      {
-        env: hostEnvironment,
-        stopSignal: "SIGTERM",
-        ...(signal === undefined ? {} : { signal }),
-      },
+      signal,
     );
     return stdout
       .split("\n")
@@ -1297,15 +1325,7 @@ export const createSystemProcessOwnershipHost = (
           environment.REA_PROCESS_RUN_ID = observation.runId;
         return environment;
       }
-      const { stdout } = await execFileOutput(
-        "ps",
-        ["eww", "-p", String(pid)],
-        {
-          env: hostEnvironment,
-          stopSignal: "SIGTERM",
-          ...(signal === undefined ? {} : { signal }),
-        },
-      );
+      const { stdout } = await runPs(["eww", "-p", String(pid)], signal);
       const observedEnvironment: Record<string, string> = Object.create(null);
       for (const match of stdout.matchAll(
         /(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=([^\s]*)/gu,
