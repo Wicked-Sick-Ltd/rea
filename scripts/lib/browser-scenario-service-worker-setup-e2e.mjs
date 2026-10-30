@@ -24,10 +24,50 @@ const beforeDeadline = async (promise, label, timeoutMs = 2_000) => {
   }
 };
 
+const ALLOWED_CDP_PROXY_PATHS = {
+  "/json/version": "/json/version",
+  "/json/version/": "/json/version/",
+  "/json/list": "/json/list",
+  "/json/list/": "/json/list/",
+};
+
+export const resolveCdpDiscoveryProxyUrl = (endpoint, requestUrl) => {
+  if (typeof endpoint !== "string" || typeof requestUrl !== "string")
+    return undefined;
+  const safePath = Object.hasOwn(ALLOWED_CDP_PROXY_PATHS, requestUrl)
+    ? ALLOWED_CDP_PROXY_PATHS[requestUrl]
+    : undefined;
+  if (safePath === undefined) return undefined;
+  let base;
+  try {
+    base = new URL(endpoint);
+  } catch {
+    return undefined;
+  }
+  const port = Number(base.port);
+  if (
+    base.protocol !== "http:" ||
+    base.hostname !== "127.0.0.1" ||
+    base.port === "" ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65_535 ||
+    base.username !== "" ||
+    base.password !== "" ||
+    base.pathname !== "/" ||
+    base.search !== "" ||
+    base.hash !== ""
+  )
+    return undefined;
+  return new URL(safePath, `http://127.0.0.1:${String(port)}`);
+};
+
 // Real loopback proxy: Playwright's first transport is forwarded to Chrome,
 // then only the policy owner's discovery/handshake is deliberately withheld.
 const startProxy = async (endpoint, mode, ownerOnly = false) => {
-  const upstream = new URL(endpoint);
+  const upstream = resolveCdpDiscoveryProxyUrl(endpoint, "/json/version");
+  if (upstream === undefined)
+    throw new Error(`Invalid loopback CDP endpoint: ${String(endpoint)}`);
   const sockets = new Set();
   let versions = 0;
   let upgrades = 0;
@@ -48,7 +88,14 @@ const startProxy = async (endpoint, mode, ownerOnly = false) => {
     entered();
   };
   const server = createServer((incoming, response) => {
-    const versionRequest = incoming.url.replace(/\/$/, "") === "/json/version";
+    const targetUrl = resolveCdpDiscoveryProxyUrl(endpoint, incoming.url ?? "");
+    if (targetUrl === undefined) {
+      response.writeHead(404).end();
+      return;
+    }
+    const versionRequest =
+      targetUrl.pathname === "/json/version" ||
+      targetUrl.pathname === "/json/version/";
     if (versionRequest) versions += 1;
     if (
       enabled &&
@@ -59,7 +106,7 @@ const startProxy = async (endpoint, mode, ownerOnly = false) => {
       stall(incoming.socket);
       return;
     }
-    const outgoing = request(new URL(incoming.url, upstream), (received) => {
+    const outgoing = request(targetUrl, (received) => {
       const chunks = [];
       received.on("data", (chunk) => chunks.push(chunk));
       received.on("end", () => {
@@ -113,7 +160,7 @@ const startProxy = async (endpoint, mode, ownerOnly = false) => {
   const origin = `http://127.0.0.1:${server.address().port}`;
   let proxyEndpoint = origin;
   if (mode === "browser-websocket") {
-    const version = await (await fetch(`${endpoint}/json/version`)).json();
+    const version = await (await fetch(upstream, { redirect: "error" })).json();
     proxyEndpoint = version.webSocketDebuggerUrl.replace(
       `127.0.0.1:${upstream.port}`,
       `127.0.0.1:${server.address().port}`,

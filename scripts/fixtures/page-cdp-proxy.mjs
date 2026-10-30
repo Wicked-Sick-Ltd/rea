@@ -36,14 +36,16 @@ export async function startPageCdpProxy(upstreamEndpoint) {
   });
   const webSockets = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
-    if (!request.url?.startsWith("/devtools/page/")) {
+    const upstreamSocketUrl = resolvePageCdpWebSocketUrl(
+      upstreamEndpoint,
+      request.url,
+    );
+    if (upstreamSocketUrl === undefined) {
       socket.destroy();
       return;
     }
     webSockets.handleUpgrade(request, socket, head, (client) => {
-      const upstream = new WebSocket(
-        new URL(request.url, upstreamEndpoint).href.replace(/^http/, "ws"),
-      );
+      const upstream = new WebSocket(upstreamSocketUrl);
       upstreams.add(upstream);
       const pending = [];
       clients.add(client);
@@ -147,9 +149,72 @@ function rewriteWebSocketEndpoints(value, server) {
   return Array.isArray(value) ? value.map(rewrite) : rewrite(value);
 }
 
+const ALLOWED_CDP_DISCOVERY_PATHS = {
+  "/json/version": "/json/version",
+  "/json/list": "/json/list",
+};
+const PAGE_TARGET_ID = /^[A-Za-z0-9._-]+$/u;
+
+export function resolvePageCdpProxyUrl(endpoint, path) {
+  if (typeof endpoint !== "string" || typeof path !== "string")
+    return undefined;
+  const safePath = Object.hasOwn(ALLOWED_CDP_DISCOVERY_PATHS, path)
+    ? ALLOWED_CDP_DISCOVERY_PATHS[path]
+    : undefined;
+  if (safePath === undefined) return undefined;
+  let base;
+  try {
+    base = new URL(endpoint);
+  } catch {
+    return undefined;
+  }
+  const port = Number(base.port);
+  if (
+    base.protocol !== "http:" ||
+    base.hostname !== "127.0.0.1" ||
+    base.port === "" ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65_535 ||
+    base.username !== "" ||
+    base.password !== "" ||
+    base.pathname !== "/" ||
+    base.search !== "" ||
+    base.hash !== ""
+  )
+    return undefined;
+  return `http://127.0.0.1:${String(port)}${safePath}`;
+}
+
+function resolvePageCdpWebSocketUrl(endpoint, requestUrl) {
+  if (
+    typeof endpoint !== "string" ||
+    typeof requestUrl !== "string" ||
+    !requestUrl.startsWith("/devtools/page/")
+  )
+    return undefined;
+  const pageId = requestUrl.slice("/devtools/page/".length);
+  if (!PAGE_TARGET_ID.test(pageId)) return undefined;
+  const discoveryUrl = resolvePageCdpProxyUrl(endpoint, "/json/version");
+  if (discoveryUrl === undefined) return undefined;
+  const { port } = new URL(discoveryUrl);
+  return `ws://127.0.0.1:${port}/devtools/page/${encodeURIComponent(pageId)}`;
+}
+
 async function upstreamJson(endpoint, path) {
-  const response = await fetch(new URL(path, endpoint));
+  const upstreamUrl = resolvePageCdpProxyUrl(endpoint, path);
+  if (upstreamUrl === undefined)
+    throw new Error(`Disallowed CDP discovery path: ${String(path)}`);
+  const response = await fetch(upstreamUrl, { redirect: "error" });
   if (!response.ok)
-    throw new Error(`Upstream CDP ${path} returned ${response.status}`);
+    throw new Error(
+      `Upstream CDP ${safePathLabel(path)} returned ${response.status}`,
+    );
   return await response.json();
+}
+
+function safePathLabel(path) {
+  return Object.hasOwn(ALLOWED_CDP_DISCOVERY_PATHS, path)
+    ? ALLOWED_CDP_DISCOVERY_PATHS[path]
+    : "<disallowed>";
 }

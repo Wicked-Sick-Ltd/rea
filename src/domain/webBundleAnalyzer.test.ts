@@ -748,7 +748,7 @@ describe("web bundle explicit request reference forms", () => {
     const references = [
       "http://api.example.test/users",
       "https://api.example.test/users?q=1#part",
-      "ws://api.example.test/events",
+      "ws://localhost/events",
       "wss://api.example.test/events",
       "http:api.example.test/users",
       "https:api.example.test/users?q=1&tag=a&tag=b#part",
