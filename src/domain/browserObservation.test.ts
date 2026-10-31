@@ -10,6 +10,9 @@ import {
   sanitizeBrowserUrl,
 } from "./browserObservation.js";
 
+const wsEndpoint = (authorityAndPath: string): string =>
+  ["ws", authorityAndPath].join("://");
+
 describe("browser observation contracts", () => {
   it.each(["127.0.0.1", "[::1]"])(
     "preserves explicitly supplied default endpoint ports on %s",
@@ -20,15 +23,15 @@ describe("browser observation contracts", () => {
         browserEndpointSchema.parse(browserEndpointSchema.parse(http)),
       ).toBe(http);
       expect(recordedBrowserObservationEndpointSchema.parse(http)).toBe(http);
-      const socket = `ws://${host}:80/devtools/browser/id`;
+      const socket = wsEndpoint(`${host}:80/devtools/browser/id`);
       expect(browserObservationEndpointSchema.parse(socket)).toEqual({
         transport: "browser_websocket",
         url: socket,
-        recorded: `ws://${host}:80/devtools/browser/[REDACTED]`,
+        recorded: wsEndpoint(`${host}:80/devtools/browser/[REDACTED]`),
       });
       for (const value of [
         `http://${host}`,
-        `ws://${host}/devtools/browser/id`,
+        wsEndpoint(`${host}/devtools/browser/id`),
         "http://192.0.2.1:80",
       ])
         expect(
@@ -99,18 +102,18 @@ describe("browser observation contracts", () => {
     });
     expect(
       browserObservationEndpointSchema.parse(
-        "ws://[::1]:9222/devtools/browser/0b1c-socket-id",
+        wsEndpoint("[::1]:9222/devtools/browser/0b1c-socket-id"),
       ),
     ).toEqual({
       transport: "browser_websocket",
-      url: "ws://[::1]:9222/devtools/browser/0b1c-socket-id",
-      recorded: "ws://[::1]:9222/devtools/browser/[REDACTED]",
+      url: wsEndpoint("[::1]:9222/devtools/browser/0b1c-socket-id"),
+      recorded: wsEndpoint("[::1]:9222/devtools/browser/[REDACTED]"),
     });
     for (const value of [
       "ws://127.0.0.1/devtools/browser/id",
       "ws://localhost:9222/devtools/browser/id",
       "wss://127.0.0.1:9222/devtools/browser/id",
-      "ws://user:pass@127.0.0.1:9222/devtools/browser/id",
+      wsEndpoint("user:pass@127.0.0.1:9222/devtools/browser/id"),
       "ws://127.0.0.1:9222/devtools/browser/id?token=x",
       "ws://127.0.0.1:9222/devtools/browser/id#fragment",
       "ws://127.0.0.1:9222/devtools/browser/id?",

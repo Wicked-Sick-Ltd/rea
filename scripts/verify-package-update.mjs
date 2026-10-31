@@ -1,10 +1,188 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
+import { isIPv4, isIPv6 } from "node:net";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { withVerifierCleanup } from "./lib/verifier-cleanup.mjs";
+
+const NPM_REGISTRY_ORIGIN = "https://registry.npmjs.org";
+const ALLOWED_UPSTREAM_HOSTS = new Set(["registry.npmjs.org"]);
+const PACKAGE_SEGMENT = /^[A-Za-z0-9._~-]+$/u;
+const SCOPE_SEGMENT = /^@[A-Za-z0-9._~-]+$/u;
+const ENCODED_SCOPED_PACKAGE = /^@[A-Za-z0-9._~-]+\/[A-Za-z0-9._~-]+$/u;
+const TARBALL_SEGMENT = /^[A-Za-z0-9._~-]+\.tgz$/u;
+
+function isValidRegistrySegments(segments) {
+  if (
+    segments.length === 0 ||
+    segments.length > 4 ||
+    segments.some(
+      (segment) => segment === "" || segment === "." || segment === "..",
+    )
+  )
+    return false;
+  if (segments.length === 1) {
+    return (
+      PACKAGE_SEGMENT.test(segments[0]) ||
+      ENCODED_SCOPED_PACKAGE.test(segments[0])
+    );
+  }
+  if (segments.length === 2) {
+    return SCOPE_SEGMENT.test(segments[0]) && PACKAGE_SEGMENT.test(segments[1]);
+  }
+  if (segments.length === 3) {
+    return (
+      PACKAGE_SEGMENT.test(segments[0]) &&
+      segments[1] === "-" &&
+      TARBALL_SEGMENT.test(segments[2])
+    );
+  }
+  return (
+    SCOPE_SEGMENT.test(segments[0]) &&
+    PACKAGE_SEGMENT.test(segments[1]) &&
+    segments[2] === "-" &&
+    TARBALL_SEGMENT.test(segments[3])
+  );
+}
+
+function isBlockedIpv4(host) {
+  if (!isIPv4(host)) return false;
+  const parts = host.split(".").map(Number);
+  if (
+    parts.length !== 4 ||
+    parts.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
+  )
+    return true;
+  const [a, b, c] = parts;
+  return (
+    a === 0 ||
+    a === 10 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113) ||
+    a >= 224
+  );
+}
+
+function mappedIpv4FromIpv6(host) {
+  const dotted = /^(?:::ffff:|0:0:0:0:0:ffff:)(\d+\.\d+\.\d+\.\d+)$/iu.exec(
+    host,
+  );
+  if (dotted !== null) return dotted[1];
+  const hex =
+    /^(?:::ffff:|0:0:0:0:0:ffff:)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/iu.exec(host);
+  if (hex === null) return undefined;
+  const hi = Number.parseInt(hex[1], 16);
+  const lo = Number.parseInt(hex[2], 16);
+  return `${String((hi >> 8) & 0xff)}.${String(hi & 0xff)}.${String((lo >> 8) & 0xff)}.${String(lo & 0xff)}`;
+}
+
+/** Reject localhost, loopback, link-local, private, and reserved IP literals or internal hostnames. */
+export function isBlockedOutboundHost(hostname) {
+  if (typeof hostname !== "string") return true;
+  const raw = hostname.trim().toLowerCase();
+  if (raw === "") return true;
+  const unbracketed =
+    raw.startsWith("[") && raw.endsWith("]") ? raw.slice(1, -1) : raw;
+  if (unbracketed.includes("%")) return true;
+  if (
+    unbracketed === "localhost" ||
+    unbracketed.endsWith(".localhost") ||
+    unbracketed.endsWith(".local") ||
+    unbracketed.endsWith(".internal")
+  )
+    return true;
+  if (isIPv4(unbracketed)) return isBlockedIpv4(unbracketed);
+  if (/^\d+(?:\.\d+){0,3}$/u.test(unbracketed)) return true;
+  const mappedV4 = mappedIpv4FromIpv6(unbracketed);
+  if (mappedV4 !== undefined) return isBlockedIpv4(mappedV4);
+  if (isIPv6(unbracketed)) {
+    return (
+      unbracketed === "::" ||
+      unbracketed === "::1" ||
+      /^(?:0+:){7}0*[01]$/iu.test(unbracketed) ||
+      /^(?:fe[89ab][0-9a-f]|f[cd][0-9a-f]{2}|fe[c-f][0-9a-f]|ff[0-9a-f]{2}):/iu.test(
+        unbracketed,
+      ) ||
+      /^2001:0?db8(?::|$)/iu.test(unbracketed)
+    );
+  }
+  return unbracketed.includes(":");
+}
+
+/** Validate an outbound HTTP(S) URL against scheme, private/link-local IP, and optional host allow-list rules. */
+export function validateOutboundHttpUrl(rawUrl, options = {}) {
+  if (typeof rawUrl !== "string" || rawUrl.length === 0) return undefined;
+  if (rawUrl.includes("\\")) return undefined;
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return undefined;
+  }
+  const allowHttp = options.allowHttp ?? true;
+  if (url.protocol !== "https:" && (!allowHttp || url.protocol !== "http:"))
+    return undefined;
+  if (url.username !== "" || url.password !== "" || url.hash !== "")
+    return undefined;
+  if (isBlockedOutboundHost(url.hostname)) return undefined;
+  if (options.allowedHosts !== undefined) {
+    const allowed =
+      options.allowedHosts instanceof Set
+        ? options.allowedHosts
+        : new Set(options.allowedHosts);
+    if (!allowed.has(url.hostname.toLowerCase())) return undefined;
+  }
+  return url.href;
+}
+
+/** Map a request URL or pathname to a fixed npm registry URL, or undefined if unsafe. */
+export function npmRegistryUrl(requestUrl) {
+  if (typeof requestUrl !== "string" || requestUrl.length === 0)
+    return undefined;
+  let pathname = requestUrl;
+  if (!requestUrl.startsWith("/")) {
+    if (/(?:^|\/)\.\.(?:\/|$)/u.test(requestUrl)) return undefined;
+    const validated = validateOutboundHttpUrl(requestUrl, {
+      allowedHosts: ALLOWED_UPSTREAM_HOSTS,
+      allowHttp: false,
+    });
+    if (validated === undefined) return undefined;
+    const parsed = new URL(validated);
+    if (parsed.port !== "" || parsed.search !== "") return undefined;
+    pathname = parsed.pathname;
+  } else if (
+    requestUrl.startsWith("//") ||
+    requestUrl.includes("?") ||
+    requestUrl.includes("#") ||
+    requestUrl.includes("\\")
+  ) {
+    return undefined;
+  }
+  let segments;
+  try {
+    segments = pathname
+      .slice(1)
+      .split("/")
+      .map((segment) => decodeURIComponent(segment));
+  } catch {
+    return undefined;
+  }
+  if (!isValidRegistrySegments(segments)) return undefined;
+  const candidate = `${NPM_REGISTRY_ORIGIN}/${segments.map((segment) => encodeURIComponent(segment)).join("/")}`;
+  return validateOutboundHttpUrl(candidate, {
+    allowedHosts: ALLOWED_UPSTREAM_HOSTS,
+    allowHttp: false,
+  });
+}
 
 /** Exercise the packaged updater with real npm and a local release registry fixture. */
 export async function verifyPackageUpdate({
@@ -65,7 +243,12 @@ export async function verifyPackageUpdate({
       response.setHeader("Content-Type", "application/json");
       response.end("{}");
     } else {
-      const upstream = await fetch(`https://registry.npmjs.org${request.url}`);
+      const upstreamUrl = npmRegistryUrl(pathname);
+      if (upstreamUrl === undefined) {
+        response.writeHead(400).end();
+        return;
+      }
+      const upstream = await fetch(upstreamUrl, { redirect: "error" });
       const body = Buffer.from(await upstream.arrayBuffer());
       response.writeHead(upstream.status, {
         "Content-Type":

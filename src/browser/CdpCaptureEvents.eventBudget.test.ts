@@ -70,7 +70,7 @@ it("drops a websocket frame whose retained shape alone exceeds the shared budget
   const events = createEvents();
   events.ingest({
     method: "Network.webSocketCreated",
-    params: { requestId: "socket", url: `ws://${origin.slice(7)}/live` },
+    params: { requestId: "socket", url: "ws://127.0.0.1:43127/live" },
   });
   events.ingest({
     method: "Network.webSocketFrameReceived",
@@ -122,7 +122,7 @@ it("spends one shared allowance across console entries and websocket frames", ()
   expect(events.console).toHaveLength(7);
   events.ingest({
     method: "Network.webSocketCreated",
-    params: { requestId: "socket", url: `ws://${origin.slice(7)}/live` },
+    params: { requestId: "socket", url: "ws://127.0.0.1:43127/live" },
   });
   const keys = Array.from(
     { length: 20_000 },
