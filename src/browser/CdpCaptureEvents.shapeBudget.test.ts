@@ -71,7 +71,7 @@ const response = (events: CdpCaptureEvents, id: string, body: string) => {
 const openSocket = (events: CdpCaptureEvents) =>
   events.ingest({
     method: "Network.webSocketCreated",
-    params: { requestId: "socket", url: `ws://${origin.slice(7)}/live` },
+    params: { requestId: "socket", url: "ws://127.0.0.1:43127/live" },
   });
 const frame = (events: CdpCaptureEvents, payloadData: string) =>
   events.ingest({

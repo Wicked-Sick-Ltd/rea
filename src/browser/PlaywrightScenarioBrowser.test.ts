@@ -1422,7 +1422,7 @@ it("keeps discovered transport credentials out of projected handshake timeouts",
   // A credential-free HTTP endpoint may discover an authenticated WebSocket.
   // Native Playwright timeout logs include the discovered transport spelling.
   const native = new errors.TimeoutError(
-    "WebSocket timeout: ws://fixture-user:fixture-password@127.0.0.1:9222/devtools/browser/discovered",
+    "WebSocket timeout: wss://fixture-user:fixture-password@127.0.0.1:9222/devtools/browser/discovered",
   );
   const scenario = browserScenarioSchema.parse({
     browser: {
