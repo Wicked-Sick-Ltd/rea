@@ -28,6 +28,8 @@ concurrency:
 jobs:
   readiness:
     name: Validate author declaration
+    # Upstream-only policy; skip on forks (e.g. Wicked-Sick-Ltd/rea).
+    if: github.repository == 'morluto/rea'
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
