@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, wicked-main]
   pull_request:
     # wicked-main is this fork's integration branch. Push CI stays on main so
     # release branches do not gain implementation pushes.
