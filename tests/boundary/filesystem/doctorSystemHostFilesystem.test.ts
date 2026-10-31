@@ -23,7 +23,7 @@ it("threads the selected host and environment into system diagnostics", async ()
     environment,
     execFileOutput: async (command, arguments_, options) => {
       calls.push({ command, arguments: arguments_, environment: options?.env });
-      if (command === "sw_vers")
+      if (command === "/usr/bin/sw_vers")
         return {
           stdout: "15.0\n",
           stderr: "",
@@ -57,7 +57,7 @@ it("threads the selected host and environment into system diagnostics", async ()
 
   expect(calls.map(({ command }) => command)).toEqual([
     "which",
-    "sw_vers",
+    "/usr/bin/sw_vers",
     "ldd",
   ]);
   expect(
