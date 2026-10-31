@@ -1,5 +1,8 @@
 import { traceSourceMap } from "../../../src/javascript/sourceMaps/TraceSourceMap.js";
-import { webSourceLocationArgs as args } from "../../fixtures/webSourceLocation.js";
+import {
+  webSourceLocationArgs as args,
+  webSourceLocationFixture,
+} from "../../fixtures/webSourceLocation.js";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -10,7 +13,6 @@ import { parseEvidence } from "../../../src/domain/evidence.js";
 import { ok } from "../../../src/domain/result.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
-import { webSourceLocationFixture } from "../../fixtures/webSourceLocation.js";
 import { SourceMapDecoder } from "../../../src/javascript/sourceMaps/SourceMapDecoder.js";
 import { createSystemProcessOwnershipHost } from "../../../src/process/ProcessOwnershipObservation.js";
 import { createApplicationMcpHarness } from "../../fixtures/applicationMcpHarness.js";
@@ -96,9 +98,13 @@ it("publishes valid SDK schemas and records the named module trace without a bin
 
 it("preserves missing Linux ps capability and recovery through source-map tracing", async () => {
   const directory = await createTestTempDirectory("source-map-missing-ps-");
-  const prepare = createSystemProcessOwnershipHost("linux", {
-    PATH: directory,
-  }).prepare;
+  const prepare = createSystemProcessOwnershipHost(
+    "linux",
+    {
+      PATH: directory,
+    },
+    { psFallbackPaths: [] },
+  ).prepare;
   if (prepare === undefined)
     throw new Error("Ownership preparation is required");
   const createRuntime = vi.fn(async () => {

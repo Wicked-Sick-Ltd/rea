@@ -103,6 +103,16 @@ describe("Linux process start identities", () => {
       identity: expect.stringMatching(/^linux-starttime:\d+$/u),
     });
   });
+
+  itOnLinux(
+    "prepares and lists processes with an empty PATH via absolute ps fallbacks",
+    async () => {
+      const host = createSystemProcessOwnershipHost("linux", { PATH: "" });
+      await expect(host.prepare?.()).resolves.toBeUndefined();
+      const processes = await host.listProcesses();
+      expect(processes.some(({ pid }) => pid === process.pid)).toBe(true);
+    },
+  );
 });
 
 it("validates and cleans an exact-token owner without a capture baseline", async () => {
