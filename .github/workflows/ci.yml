@@ -4,7 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, "release/*"]
+    # wicked-main is this fork's integration branch. Push CI stays on main so
+    # release branches do not gain implementation pushes.
+    branches: [main, wicked-main, "release/*"]
   schedule:
     - cron: "23 0-2,4-23 * * *"
     - cron: "23 3 * * *"
