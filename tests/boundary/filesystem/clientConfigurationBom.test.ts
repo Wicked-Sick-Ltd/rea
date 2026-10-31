@@ -42,8 +42,10 @@ describe.each(["vscode", "copilot_cli", "opencode", "commandcode"])(
         ).replaceAll("\n", "\r\n")}\r\n`;
         await mkdir(dirname(client.configPath), { recursive: true });
         await writeFile(client.configPath, original);
-        const currentCommandPath = join(home, "rea");
-        const command = [currentCommandPath, "mcp"];
+        const currentCommandPath = CURRENT_ENTRYPOINT_PATH;
+        if (currentCommandPath === undefined)
+          throw new Error("test runner entrypoint is unavailable");
+        const command = [process.execPath, currentCommandPath, "mcp"];
         expect(await inspectClientConfiguration(client, {}, command)).toEqual({
           status: "update",
           backupPath: `${client.configPath}.rea.backup`,
