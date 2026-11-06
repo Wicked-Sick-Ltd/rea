@@ -812,7 +812,7 @@ it("runs release PR CI without enabling implementation pushes on release branche
         ),
       ),
     );
-  expect(workflow.on.push.branches).toEqual(["main"]);
+  expect(workflow.on.push.branches).toEqual(["main", "wicked-main"]);
   expect(workflow.on.pull_request.branches).toEqual(
     expect.arrayContaining(["main", "release/*"]),
   );

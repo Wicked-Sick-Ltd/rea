@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # wicked-main is this fork's integration branch. Release branches stay off
+    # push CI so they do not gain implementation pushes.
+    branches: [main, wicked-main]
   pull_request:
-    # wicked-main is this fork's integration branch. Push CI stays on main so
-    # release branches do not gain implementation pushes.
     branches: [main, wicked-main, "release/*"]
   schedule:
     - cron: "23 0-2,4-23 * * *"
