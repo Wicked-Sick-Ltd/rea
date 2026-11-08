@@ -150,6 +150,28 @@ const enhancedFixtureResult = (method) => {
   }
 };
 
+// Allowlist control methods by returning a fixed name. Dispatch compares that
+// constant, so the raw request string is not the guard for process.exit.
+// Known names still select the same fixture behavior.
+const fixedControlMethod = (method) => {
+  switch (method) {
+    case "health":
+      return "health";
+    case "shutdown":
+      return "shutdown";
+    case "shutdown_document":
+      return "shutdown_document";
+    case "hang":
+      return "hang";
+    case "partial_then_wait":
+      return "partial_then_wait";
+    case "exit":
+      return "exit";
+    default:
+      return undefined;
+  }
+};
+const MAX_FIXTURE_DELAY_MS = 60 * 1000;
 const sendEchoWithProgress = (send, request) => {
   send({
     id: request.id,
@@ -180,7 +202,16 @@ const sendEchoWithProgress = (send, request) => {
   };
   if (typeof request.params?.gate === "string")
     heldReplies.set(request.id, reply);
-  else setTimeout(reply, request.params?.delay ?? 0);
+  else {
+    // Number() keeps setTimeout's coercion for numeric strings. The upper
+    // bound is what stops an unbounded timer; non-finite values match
+    // setTimeout's treatment of NaN.
+    const requestedDelay = Number(request.params?.delay ?? 0);
+    if (!Number.isFinite(requestedDelay)) setTimeout(reply, 0);
+    else if (requestedDelay <= MAX_FIXTURE_DELAY_MS)
+      setTimeout(reply, requestedDelay);
+    else setTimeout(reply, MAX_FIXTURE_DELAY_MS);
+  }
 };
 
 const server = createServer((socket) => {
@@ -211,9 +242,10 @@ const server = createServer((socket) => {
       });
       const bridgeEventMessages = bridgeEventFixtureMessages(request);
       buffer = buffer.slice(newline + 1);
+      const method = fixedControlMethod(request.method);
       if (request.token !== token) {
         send({ id: request.id, error: { code: -32001, message: "bad token" } });
-      } else if (request.method === "health") {
+      } else if (method === "health") {
         emitDiagnosticOutput();
         const reply = () =>
           send(
@@ -232,19 +264,16 @@ const server = createServer((socket) => {
         if (healthMode === "gated") heldReplies.set(request.id, reply);
         else if (healthMode === "ready") reply();
         else throw new Error(`Unknown health fixture mode: ${healthMode}`);
-      } else if (
-        request.method === "shutdown" ||
-        request.method === "shutdown_document"
-      ) {
+      } else if (method === "shutdown" || method === "shutdown_document") {
         if (shutdownMode === "exit-without-ack") process.exit(0);
         send({ id: request.id, result: shutdownResult() });
         if (shutdownMode !== "cleanup-required") setTimeout(closeServer, 2);
-      } else if (request.method === "hang") {
+      } else if (method === "hang") {
         // Deliberately leave the request pending.
-      } else if (request.method === "partial_then_wait") {
+      } else if (method === "partial_then_wait") {
         socket.write(`{"id":${request.id},"result":"stale`);
         process.send?.({ id: request.id, method: "fixture_partial_write" });
-      } else if (request.method === "exit") {
+      } else if (method === "exit") {
         process.exit(7);
       } else if (request.method === "malformed") {
         socket.write("{not-json}\n");
