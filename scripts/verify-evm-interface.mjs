@@ -162,6 +162,8 @@ try {
   };
   const ownershipProbe = join(root.path, "ownership-prerequisite.hex");
   await writeFile(ownershipProbe, "0x00");
+  // A private PATH still leaves /usr/bin/ps and /bin/ps. Disable those
+  // absolute fallbacks so a missing procps ps fails closed.
   const missingInspection = await inspect(
     "cli",
     ownershipProbe,
@@ -171,7 +173,11 @@ try {
       command: process.execPath,
       prefix: [],
       client,
-      environment: { ...environment, PATH: root.path },
+      environment: {
+        ...environment,
+        PATH: root.path,
+        REA_PS_FALLBACK_PATHS: "",
+      },
     },
   );
   assert.equal(missingInspection.code, "capability_unavailable");

@@ -99,6 +99,46 @@ describe("system process ownership ps ENOENT fallbacks", () => {
     ]);
   });
 
+  it("fails closed when REA_PS_FALLBACK_PATHS disables absolute ps fallbacks", async () => {
+    execFileOutputMock.mockImplementation(async (command) => {
+      throw enoentError(command);
+    });
+
+    const host = createSystemProcessOwnershipHost("linux", {
+      PATH: "/tmp/rea-no-ps",
+      REA_PS_FALLBACK_PATHS: "",
+    });
+    const failure = await host.prepare?.().catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(AnalysisCapabilityUnavailableError);
+    expect(failure).toMatchObject({
+      providerId: "process-ownership",
+      operation: "prepare_owned_process",
+      reason: expect.stringContaining("procps-compatible ps"),
+    });
+    expect(execFileOutputMock.mock.calls.map(([command]) => command)).toEqual([
+      "ps",
+    ]);
+  });
+
+  it("uses REA_PS_FALLBACK_PATHS instead of the default absolute paths", async () => {
+    execFileOutputMock.mockImplementation(async (command) => {
+      if (command === "ps") throw enoentError(command);
+      return {
+        stdout: `${String(process.pid)} ${String(process.ppid)} ${String(process.pid)} 501 S node`,
+      };
+    });
+
+    const host = createSystemProcessOwnershipHost("linux", {
+      PATH: "",
+      REA_PS_FALLBACK_PATHS: "/opt/rea/ps",
+    });
+    await expect(host.prepare?.()).resolves.toBeUndefined();
+    expect(execFileOutputMock.mock.calls.map(([command]) => command)).toEqual([
+      "ps",
+      "/opt/rea/ps",
+    ]);
+  });
+
   it("fails closed when ps and all fallback paths return ENOENT", async () => {
     execFileOutputMock.mockImplementation(async (command) => {
       throw enoentError(command);
