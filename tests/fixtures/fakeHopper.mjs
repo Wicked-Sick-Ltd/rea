@@ -150,8 +150,9 @@ const enhancedFixtureResult = (method) => {
   }
 };
 
-// Control methods resolve to these fixed names. Dispatch then compares the
-// result, so a raw request method cannot decide process termination.
+// Allowlist control methods by returning a fixed name. Dispatch compares that
+// constant, so the raw request string is not the guard for process.exit.
+// Known names still select the same fixture behavior.
 const fixedControlMethod = (method) => {
   switch (method) {
     case "health":
@@ -202,16 +203,14 @@ const sendEchoWithProgress = (send, request) => {
   if (typeof request.params?.gate === "string")
     heldReplies.set(request.id, reply);
   else {
-    const requestedDelay = request.params?.delay ?? 0;
-    if (
-      typeof requestedDelay === "number" &&
-      Number.isFinite(requestedDelay) &&
-      requestedDelay >= 0
-    ) {
-      if (requestedDelay <= MAX_FIXTURE_DELAY_MS)
-        setTimeout(reply, requestedDelay);
-      else setTimeout(reply, MAX_FIXTURE_DELAY_MS);
-    } else setTimeout(reply, 0);
+    // Number() keeps setTimeout's coercion for numeric strings. The upper
+    // bound is what stops an unbounded timer; non-finite values match
+    // setTimeout's treatment of NaN.
+    const requestedDelay = Number(request.params?.delay ?? 0);
+    if (!Number.isFinite(requestedDelay)) setTimeout(reply, 0);
+    else if (requestedDelay <= MAX_FIXTURE_DELAY_MS)
+      setTimeout(reply, requestedDelay);
+    else setTimeout(reply, MAX_FIXTURE_DELAY_MS);
   }
 };
 
