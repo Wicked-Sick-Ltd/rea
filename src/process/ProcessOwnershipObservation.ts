@@ -957,6 +957,21 @@ const DEFAULT_PS_FALLBACK_PATHS = ["/usr/bin/ps", "/bin/ps"] as const;
 const isMissingExecutableError = (cause: unknown): boolean =>
   cause instanceof Error && "code" in cause && cause.code === "ENOENT";
 
+/**
+ * Absolute `ps` paths used after `ps` is missing from PATH.
+ * Unset keeps the standard locations. An empty value selects none, so a
+ * caller that has removed `ps` from PATH can still prove it is unavailable.
+ */
+const psFallbackPathsFromEnvironment = (
+  hostEnvironment: NodeJS.ProcessEnv,
+): readonly string[] | undefined => {
+  if (!Object.hasOwn(hostEnvironment, "REA_PS_FALLBACK_PATHS"))
+    return undefined;
+  const configured = hostEnvironment.REA_PS_FALLBACK_PATHS ?? "";
+  if (configured.length === 0) return [];
+  return configured.split(":");
+};
+
 /** Create the operating-system process inspector for an explicit host context. */
 export const createSystemProcessOwnershipHost = (
   platform: NodeJS.Platform = process.platform,
@@ -972,7 +987,10 @@ export const createSystemProcessOwnershipHost = (
     readonly psFallbackPaths?: readonly string[];
   } = {},
 ): ProcessOwnershipHost => {
-  const psFallbackPaths = options.psFallbackPaths ?? DEFAULT_PS_FALLBACK_PATHS;
+  const psFallbackPaths =
+    options.psFallbackPaths ??
+    psFallbackPathsFromEnvironment(hostEnvironment) ??
+    DEFAULT_PS_FALLBACK_PATHS;
   const darwinModuleCachePath =
     options.darwinModuleCachePath ??
     hostEnvironment.REA_DARWIN_MODULE_CACHE_PATH;
