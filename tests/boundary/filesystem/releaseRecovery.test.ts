@@ -1,6 +1,9 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import { parse } from "yaml";
 import { z } from "zod";
@@ -10,6 +13,8 @@ import {
   verifyRecoveryPackage,
 } from "../../../scripts/ci/release-recovery.mjs";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+
+const execFileAsync = promisify(execFile);
 
 const sourceSha = "a".repeat(40);
 const job = (name: string, conclusion = "success") => ({
@@ -188,8 +193,11 @@ it.each([1, 2])(
 
 it("limits recovery to verification and dependent MCP publication from the released source", async () => {
   const step = z.object({
+    name: z.string().optional(),
     uses: z.string().optional(),
     run: z.string().optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    "working-directory": z.string().optional(),
     with: z.record(z.string(), z.unknown()).optional(),
   });
   const workflow = z
@@ -238,6 +246,22 @@ it("limits recovery to verification and dependent MCP publication from the relea
   expect(digest).toBeGreaterThanOrEqual(0);
   expect(rehearsal).toBeGreaterThan(digest);
   expect(canary).toBeGreaterThan(rehearsal);
+  const metadata = steps.find(
+    (candidate) => candidate.name === "Validate released registry metadata",
+  );
+  expect(metadata).toMatchObject({
+    run: "node scripts/verify-mcp-registry-metadata.mjs",
+    env: {
+      REGISTRY_METADATA_ROOT: "${{ github.workspace }}/.cache/release-source",
+    },
+  });
+  expect(metadata?.["working-directory"]).toBeUndefined();
+  expect(metadata?.run ?? "").not.toMatch(/\bnpm\b/u);
+  expect(
+    steps.some(
+      (candidate) => candidate["working-directory"] === ".cache/release-source",
+    ),
+  ).toBe(false);
   const publisher = workflow.jobs["publish-mcp"];
   expect(publisher.needs).toBe("verify");
   expect(
@@ -256,4 +280,54 @@ it("limits recovery to verification and dependent MCP publication from the relea
     );
     expect(candidate.uses ?? "").not.toContain("release-please");
   }
+});
+
+it("validates an explicit release tree without executing that tree", async () => {
+  const directory = await createTestTempDirectory("rea-registry-metadata-");
+  const packageJson = {
+    name: "rea-agents",
+    version: "1.2.3",
+    mcpName: "io.github.morluto/rea",
+  };
+  const serverJson = {
+    name: "io.github.morluto/rea",
+    version: "1.2.3",
+    packages: [
+      {
+        registryType: "npm",
+        registryBaseUrl: "https://registry.npmjs.org",
+        identifier: "rea-agents",
+        version: "1.2.3",
+        runtimeHint: "npx",
+        transport: { type: "stdio" },
+        packageArguments: [{ type: "positional", value: "mcp" }],
+      },
+    ],
+  };
+  await writeFile(join(directory, "package.json"), JSON.stringify(packageJson));
+  await writeFile(join(directory, "server.json"), JSON.stringify(serverJson));
+  const script = fileURLToPath(
+    new URL(
+      "../../../scripts/verify-mcp-registry-metadata.mjs",
+      import.meta.url,
+    ),
+  );
+  await expect(
+    execFileAsync(process.execPath, [script], {
+      cwd: directory,
+      env: { ...process.env, REGISTRY_METADATA_ROOT: directory },
+    }),
+  ).resolves.toMatchObject({
+    stdout: expect.stringContaining("rea-agents@1.2.3"),
+  });
+  await writeFile(
+    join(directory, "package.json"),
+    JSON.stringify({ ...packageJson, version: "9.9.9" }),
+  );
+  await expect(
+    execFileAsync(process.execPath, [script], {
+      cwd: directory,
+      env: { ...process.env, REGISTRY_METADATA_ROOT: directory },
+    }),
+  ).rejects.toThrow(/server.json version does not match/u);
 });

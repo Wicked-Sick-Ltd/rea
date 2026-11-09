@@ -1,8 +1,14 @@
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+// Recovery reads a historical release tree as data. The checker stays the
+// workflow revision's script so that tree's package.json cannot select code.
+const metadataRoot = process.env.REGISTRY_METADATA_ROOT;
+const root =
+  metadataRoot === undefined
+    ? join(dirname(fileURLToPath(import.meta.url)), "..")
+    : resolve(metadataRoot);
 const readJson = async (path) =>
   JSON.parse(await readFile(join(root, path), "utf8"));
 const fail = (message) => {

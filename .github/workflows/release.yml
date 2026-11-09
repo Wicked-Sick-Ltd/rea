@@ -381,9 +381,17 @@ jobs:
       contents: read
       actions: read
     steps:
+      - name: Require the qualified revision to be this workflow commit
+        env:
+          QUALIFIED_SHA: ${{ needs.merged-release.outputs.sha || needs.release-please.outputs.sha }}
+        run: |
+          if [[ ! "${QUALIFIED_SHA}" =~ ^[0-9a-f]{40}$ || "${QUALIFIED_SHA}" != "${GITHUB_SHA}" ]]; then
+            echo "The qualified release revision is not this workflow commit; refusing to execute release code from another revision." >&2
+            exit 1
+          fi
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ needs.merged-release.outputs.sha || needs.release-please.outputs.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -412,9 +420,17 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Require the qualified revision to be this workflow commit
+        env:
+          QUALIFIED_SHA: ${{ needs.merged-release.outputs.sha || needs.release-please.outputs.sha }}
+        run: |
+          if [[ ! "${QUALIFIED_SHA}" =~ ^[0-9a-f]{40}$ || "${QUALIFIED_SHA}" != "${GITHUB_SHA}" ]]; then
+            echo "The qualified release revision is not this workflow commit; refusing to execute release code from another revision." >&2
+            exit 1
+          fi
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ needs.merged-release.outputs.sha || needs.release-please.outputs.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -450,9 +466,17 @@ jobs:
       contents: read
       actions: read
     steps:
+      - name: Require the qualified revision to be this workflow commit
+        env:
+          QUALIFIED_SHA: ${{ needs.merged-release.outputs.sha || needs.release-please.outputs.sha }}
+        run: |
+          if [[ ! "${QUALIFIED_SHA}" =~ ^[0-9a-f]{40}$ || "${QUALIFIED_SHA}" != "${GITHUB_SHA}" ]]; then
+            echo "The qualified release revision is not this workflow commit; refusing to execute release code from another revision." >&2
+            exit 1
+          fi
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ needs.merged-release.outputs.sha || needs.release-please.outputs.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -486,9 +510,17 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Require the qualified revision to be this workflow commit
+        env:
+          QUALIFIED_SHA: ${{ needs.merged-release.outputs.sha || needs.release-please.outputs.sha }}
+        run: |
+          if [[ ! "${QUALIFIED_SHA}" =~ ^[0-9a-f]{40}$ || "${QUALIFIED_SHA}" != "${GITHUB_SHA}" ]]; then
+            echo "The qualified release revision is not this workflow commit; refusing to execute release code from another revision." >&2
+            exit 1
+          fi
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ needs.merged-release.outputs.sha || needs.release-please.outputs.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Verify package and registry metadata versions
