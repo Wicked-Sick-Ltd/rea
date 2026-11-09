@@ -1002,9 +1002,11 @@ export class FlutterBuildProvider {
       );
     const imagePath = join(snapshot.root, "libapp.so");
     const imageHash = createHash("sha256");
+    // wx+ keeps the exclusive descriptor readable. The ELF parse uses that
+    // handle, so the extracted image is not reopened by path.
     const imageWriter = this.ownResource(
       snapshot.root,
-      new OwnedFileHandle(await openFile(imagePath, "wx")),
+      new OwnedFileHandle(await openFile(imagePath, "wx+")),
     );
     {
       const stream = openEntrySafely(
@@ -1034,32 +1036,25 @@ export class FlutterBuildProvider {
         await imageWriter.handle.writeFile(view);
       }
     }
-    await this.releaseResource(snapshot.root, imageWriter);
     const imageSha256 = imageHash.digest("hex");
     // Allocate exactly the budget-checked size before reading, so the
     // buffer cannot exceed the declared library size plus one byte.
     const image = Buffer.alloc(declared + 1);
     let imageLength = 0;
-    {
-      const file = this.ownResource(
-        snapshot.root,
-        new OwnedFileHandle(await openFile(imagePath, "r")),
+    while (imageLength < image.length) {
+      if (signal?.aborted === true)
+        return err(new AnalysisCancelledError("inspect_dart_aot"));
+      const result = await imageWriter.handle.read(
+        image,
+        imageLength,
+        image.length - imageLength,
+        imageLength,
       );
-      while (imageLength < image.length) {
-        if (signal?.aborted === true)
-          return err(new AnalysisCancelledError("inspect_dart_aot"));
-        const result = await file.handle.read(
-          image,
-          imageLength,
-          image.length - imageLength,
-          null,
-        );
-        signal?.throwIfAborted();
-        if (result.bytesRead === 0) break;
-        imageLength += result.bytesRead;
-      }
-      await this.releaseResource(snapshot.root, file);
+      signal?.throwIfAborted();
+      if (result.bytesRead === 0) break;
+      imageLength += result.bytesRead;
     }
+    await this.releaseResource(snapshot.root, imageWriter);
     signal?.throwIfAborted();
     const bounded = image.subarray(0, imageLength);
     const symbolNames = [

@@ -5,7 +5,8 @@ import type {
   JavaScriptSemanticFileProjection,
 } from "../../domain/javascript/javascriptSemanticFileProjection.js";
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, rm, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
@@ -692,63 +693,69 @@ export class JavaScriptAnalysisWorker {
     if (rootPath === undefined)
       throw new TypeError("JavaScript checkpoint has no owned runtime");
     const path = join(rootPath, `${id}.static.json`);
-    const bytes = (await stat(path)).size;
-    if (
-      bytes > DEFAULTS.checkpointBytes ||
-      (expected !== undefined && expected.bytes !== bytes)
-    )
-      throw new AnalysisOutputError(
-        OPERATION,
-        "JavaScript static checkpoint byte count exceeds or differs from its declared budget",
+    const handle = await open(path, constants.O_RDONLY);
+    try {
+      const bytes = (await handle.stat()).size;
+      if (
+        bytes > DEFAULTS.checkpointBytes ||
+        (expected !== undefined && expected.bytes !== bytes)
+      )
+        throw new AnalysisOutputError(
+          OPERATION,
+          "JavaScript static checkpoint byte count exceeds or differs from its declared budget",
+        );
+      if (bytes * 16 + 4 * MIB > this.#remainingParentHeapBytes() - 64 * MIB)
+        throw new AnalysisResourceConstraintError(
+          OPERATION,
+          "memory",
+          "The parent's remaining heap cannot safely decode the completed JavaScript static checkpoint",
+          { ...this.#limits(), checkpoint_bytes: bytes },
+          {
+            remediationAction: JAVASCRIPT_PARENT_CHECKPOINT_HEAP_REMEDIATION,
+          },
+        );
+      const text = await handle.readFile("utf8");
+      if (
+        expected !== undefined &&
+        createHash("sha256").update(text).digest("hex") !== expected.sha256
+      )
+        throw new AnalysisOutputError(
+          OPERATION,
+          "JavaScript static checkpoint digest does not match",
+        );
+      const value: unknown = JSON.parse(text);
+      const facts = javaScriptWorkerStaticAnalysisSchema.parse(value);
+      const remaining = this.#remainingTotalResultBudget();
+      const retainedBytes = bytes * STATIC_CHECKPOINT_RETENTION_EXPANSION;
+      this.#parentCapacityExhausted = retainedBytes > remaining;
+      this.#estimatedRetainedBytes += retainedBytes;
+      const expandedBytes = estimateJavaScriptStaticApplicationProjection(
+        facts,
+        bytes,
+        sourcePath,
       );
-    if (bytes * 16 + 4 * MIB > this.#remainingParentHeapBytes() - 64 * MIB)
-      throw new AnalysisResourceConstraintError(
-        OPERATION,
-        "memory",
-        "The parent's remaining heap cannot safely decode the completed JavaScript static checkpoint",
-        { ...this.#limits(), checkpoint_bytes: bytes },
-        {
-          remediationAction: JAVASCRIPT_PARENT_CHECKPOINT_HEAP_REMEDIATION,
-        },
-      );
-    const text = await readFile(path, "utf8");
-    if (
-      expected !== undefined &&
-      createHash("sha256").update(text).digest("hex") !== expected.sha256
-    )
-      throw new AnalysisOutputError(
-        OPERATION,
-        "JavaScript static checkpoint digest does not match",
-      );
-    const value: unknown = JSON.parse(text);
-    const facts = javaScriptWorkerStaticAnalysisSchema.parse(value);
-    const remaining = this.#remainingTotalResultBudget();
-    const retainedBytes = bytes * STATIC_CHECKPOINT_RETENTION_EXPANSION;
-    this.#parentCapacityExhausted = retainedBytes > remaining;
-    this.#estimatedRetainedBytes += retainedBytes;
-    const expandedBytes = estimateJavaScriptStaticApplicationProjection(
-      facts,
-      bytes,
-      sourcePath,
-    );
-    const availableResultBudget = this.#remainingResultBudget();
-    if (expandedBytes <= availableResultBudget)
-      this.#estimatedRetainedBytes += expandedBytes;
-    else
-      this.#applicationProjectionFailure = new AnalysisResourceConstraintError(
-        OPERATION,
-        "memory",
-        `Expanded application relationships for ${sourcePath} exceed the parent's result budget; complete static facts were retained on the file node`,
-        {
-          parent_result_budget_bytes: this.#resultBudgetBytes,
-          parent_available_result_budget_bytes: availableResultBudget,
-          application_projection_required_bytes: expandedBytes,
-        },
-        {
-          remediationAction: `Read the complete static facts on the file node or analyze fewer source files. Expanded application relationships exceed the parent result budget. ${JAVASCRIPT_PARENT_RESULT_BUDGET_REMEDIATION}`,
-        },
-      );
-    return facts;
+      const availableResultBudget = this.#remainingResultBudget();
+      if (expandedBytes <= availableResultBudget)
+        this.#estimatedRetainedBytes += expandedBytes;
+      else
+        this.#applicationProjectionFailure =
+          new AnalysisResourceConstraintError(
+            OPERATION,
+            "memory",
+            `Expanded application relationships for ${sourcePath} exceed the parent's result budget; complete static facts were retained on the file node`,
+            {
+              parent_result_budget_bytes: this.#resultBudgetBytes,
+              parent_available_result_budget_bytes: availableResultBudget,
+              application_projection_required_bytes: expandedBytes,
+            },
+            {
+              remediationAction: `Read the complete static facts on the file node or analyze fewer source files. Expanded application relationships exceed the parent result budget. ${JAVASCRIPT_PARENT_RESULT_BUDGET_REMEDIATION}`,
+            },
+          );
+      return facts;
+    } finally {
+      await handle.close();
+    }
   }
 
   #limits() {

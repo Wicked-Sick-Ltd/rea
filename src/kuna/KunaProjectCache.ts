@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import {
   mkdir,
   mkdtemp,
+  open,
   readdir,
-  readFile,
   rename,
   rm,
   stat,
@@ -1054,12 +1055,33 @@ export class KunaProjectCache {
   }
 
   async #readBounded(path: string): Promise<string> {
-    const status = await stat(path);
-    if (status.size > MANIFEST_MAX_BYTES)
-      throw new RangeError(
-        `${path} exceeds ${String(MANIFEST_MAX_BYTES)} bytes`,
-      );
-    return readFile(path, "utf8");
+    const handle = await open(path, constants.O_RDONLY);
+    try {
+      const status = await handle.stat();
+      if (status.size > MANIFEST_MAX_BYTES)
+        throw new RangeError(
+          `${path} exceeds ${String(MANIFEST_MAX_BYTES)} bytes`,
+        );
+      const raw = Buffer.alloc(MANIFEST_MAX_BYTES + 1);
+      let offset = 0;
+      while (offset < raw.length) {
+        const { bytesRead } = await handle.read(
+          raw,
+          offset,
+          raw.length - offset,
+          offset,
+        );
+        if (bytesRead === 0) break;
+        offset += bytesRead;
+      }
+      if (offset > MANIFEST_MAX_BYTES)
+        throw new RangeError(
+          `${path} exceeds ${String(MANIFEST_MAX_BYTES)} bytes`,
+        );
+      return raw.subarray(0, offset).toString("utf8");
+    } finally {
+      await handle.close();
+    }
   }
 
   #retainFileCleanup(

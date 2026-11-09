@@ -319,17 +319,22 @@ const bindSignatureTarget = async (
   > => {
     try {
       assertRegularFileActive(signal);
-      const before = await lstat(target.path, { bigint: true });
-      assertRegularFileActive(signal);
-      if (!before.isFile() || before.isSymbolicLink())
-        return changedTarget(
-          target,
-          `Signature target is no longer a regular file: ${target.path}`,
+      let file: FileHandle;
+      try {
+        file = await open(
+          target.path,
+          constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
         );
-      const file = await open(
-        target.path,
-        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-      );
+      } catch (cause: unknown) {
+        const code =
+          cause instanceof Error && "code" in cause ? cause.code : undefined;
+        if (code === "ELOOP")
+          return changedTarget(
+            target,
+            `Signature target is no longer a regular file: ${target.path}`,
+          );
+        throw cause;
+      }
       const sourceHandle = new OwnedFileHandle(file);
       sourceOwner = {
         kind: "lease",
@@ -341,10 +346,10 @@ const bindSignatureTarget = async (
       };
       const opened = await file.stat({ bigint: true });
       assertRegularFileActive(signal);
-      if (identity(opened) !== identity(before))
+      if (!opened.isFile())
         return changedTarget(
           target,
-          `Signature target changed before open: ${target.path}`,
+          `Signature target is no longer a regular file: ${target.path}`,
         );
       const snapshot = await snapshotIO(target, "create-file", () =>
         open(snapshotPath, "wx", 0o600),

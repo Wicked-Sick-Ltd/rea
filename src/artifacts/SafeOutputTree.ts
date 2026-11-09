@@ -254,7 +254,7 @@ export class SafeOutputTree {
         destination,
         constants.O_CREAT |
           constants.O_EXCL |
-          constants.O_WRONLY |
+          constants.O_RDWR |
           constants.O_NOFOLLOW,
         0o600,
       ).catch(async (cause: unknown) => {
@@ -312,17 +312,14 @@ export class SafeOutputTree {
       await this.#assertLineage(lineage);
       await assertFilePathIdentity(destination, fileIdentity);
       await ownedHandle.handle.sync();
-      await this.#closeHandle(ownedHandle);
-      const readbackHandle = this.#trackHandle(
-        await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW),
-      );
+      // Read back the exclusive descriptor that received the bytes.
       const readback = await hashOutputFile(
-        readbackHandle,
+        ownedHandle,
         destination,
         fileIdentity,
         { maximum: bytes, signal },
       );
-      await this.#closeHandle(readbackHandle);
+      await this.#closeHandle(ownedHandle);
       await this.#assertLineage(lineage);
       await assertFilePathIdentity(destination, fileIdentity);
       if (readback.sha256 !== sha256 || readback.bytes !== bytes)
