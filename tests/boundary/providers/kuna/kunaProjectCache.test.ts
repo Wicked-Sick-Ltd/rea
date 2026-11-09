@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { readlinkSync } from "node:fs";
 import {
   appendFile,
   chmod,
@@ -18,6 +17,7 @@ import { expect, it as test, vi } from "vitest";
 const manifestClose = vi.hoisted(() => ({
   fail: false,
   suffix: "",
+  handles: new WeakSet<object>(),
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -27,6 +27,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     open: async (...args: Parameters<typeof actual.open>) => {
       const handle = await actual.open(...args);
       const target = String(args[0]);
+      if (target.endsWith("manifest.json")) manifestClose.handles.add(handle);
       if (!manifestClose.fail || !target.endsWith(manifestClose.suffix))
         return handle;
       const close = handle.close.bind(handle);
@@ -62,16 +63,8 @@ import {
 
 const it = test.skipIf(process.platform === "win32");
 
-const isManifestOwner = (owner: OwnedFileHandle): boolean => {
-  if (owner.handle.fd < 0) return false;
-  try {
-    return readlinkSync(`/proc/self/fd/${String(owner.handle.fd)}`).endsWith(
-      "manifest.json",
-    );
-  } catch {
-    return false;
-  }
-};
+const isManifestOwner = (owner: OwnedFileHandle): boolean =>
+  manifestClose.handles.has(owner.handle);
 
 interface Target {
   readonly targetPath: string;
