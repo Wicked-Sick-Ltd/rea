@@ -14,6 +14,32 @@ import { join } from "node:path";
 
 import { expect, it as test, vi } from "vitest";
 
+const manifestClose = vi.hoisted(() => ({
+  fail: false,
+  suffix: "",
+  handles: new WeakSet<object>(),
+}));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    open: async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args);
+      const target = String(args[0]);
+      if (target.endsWith("manifest.json")) manifestClose.handles.add(handle);
+      if (!manifestClose.fail || !target.endsWith(manifestClose.suffix))
+        return handle;
+      const close = handle.close.bind(handle);
+      handle.close = async () => {
+        if (manifestClose.fail) throw new Error("manifest close refused");
+        await close();
+      };
+      return handle;
+    },
+  };
+});
+
 import { inspectKunaInstallationOwned as inspectKunaInstallation } from "./kunaResourceScope.js";
 import { cleanupOwnedProcessGroup } from "../../../../src/process/ProcessOwnership.js";
 import { spawnOwnedProviderProcess } from "../../../../src/process/ProviderProcess.js";
@@ -36,6 +62,9 @@ import {
 } from "./fakeKuna.js";
 
 const it = test.skipIf(process.platform === "win32");
+
+const isManifestOwner = (owner: OwnedFileHandle): boolean =>
+  manifestClose.handles.has(owner.handle);
 
 interface Target {
   readonly targetPath: string;
@@ -215,6 +244,38 @@ it("publishes a verified export and serves later requests from the cache", async
   expect(await callsOf(kuna, "decompile-project")).toHaveLength(1);
 });
 
+it("keeps a published manifest when its descriptor close fails, then retries that close", async () => {
+  const { installation, cache, target } = await fixture(
+    "rea-kuna-cache-manifest-close-",
+  );
+  const input = await target("program");
+  const built = await cache.build({ installation, ...input });
+  if (!built.ok) throw built.error;
+  const warmCache = newCache(installation);
+  manifestClose.suffix = join("projects", built.value.key, "manifest.json");
+  manifestClose.fail = true;
+  try {
+    await expect(warmCache.lookup(built.value.key)).resolves.toMatchObject({
+      key: built.value.key,
+    });
+    expect(warmCache.hasPendingCleanup).toBe(true);
+    await expect(warmCache.lookup(built.value.key)).rejects.toBeInstanceOf(
+      ProviderCleanupError,
+    );
+    manifestClose.fail = false;
+    await expect(warmCache.lookup(built.value.key)).resolves.toMatchObject({
+      key: built.value.key,
+    });
+    expect(warmCache.hasPendingCleanup).toBe(false);
+    expect(await warmCache.close()).toEqual({ ok: true, value: null });
+  } finally {
+    manifestClose.fail = false;
+    manifestClose.suffix = "";
+    await warmCache.close();
+    await cache.close();
+  }
+});
+
 it("retains a failed warm-cache hash descriptor and retries it at cache close", async () => {
   const { installation, cache, target } = await fixture(
     "rea-kuna-cache-hash-owner-",
@@ -223,9 +284,18 @@ it("retains a failed warm-cache hash descriptor and retries it at cache close", 
   const built = await cache.build({ installation, ...input });
   if (!built.ok) throw built.error;
   const closeCause = new Error("injected warm-cache descriptor close failure");
+  const originalClose = OwnedFileHandle.prototype.close;
+  let rejected = false;
   const close = vi
     .spyOn(OwnedFileHandle.prototype, "close")
-    .mockRejectedValueOnce(closeCause);
+    .mockImplementation(async function (this: OwnedFileHandle) {
+      if (isManifestOwner(this)) return originalClose.call(this);
+      if (!rejected) {
+        rejected = true;
+        throw closeCause;
+      }
+      return originalClose.call(this);
+    });
   const warmCache = newCache(installation);
   try {
     const failure = await warmCache
@@ -271,6 +341,7 @@ it.each(["success", "failure"] as const)(
     const close = vi
       .spyOn(OwnedFileHandle.prototype, "close")
       .mockImplementation(function (this: OwnedFileHandle) {
+        if (isManifestOwner(this)) return closeOwner.call(this);
         const count = (closeCounts.get(this) ?? 0) + 1;
         closeCounts.set(this, count);
         if (count === 1 && retainedOwner === undefined) {
@@ -369,9 +440,18 @@ it("resolves a hash failure delivered after its retained owner was released", as
       }
     });
   const closeCause = new Error("initial hash descriptor close failure");
+  const originalClose = OwnedFileHandle.prototype.close;
+  let rejected = false;
   const close = vi
     .spyOn(OwnedFileHandle.prototype, "close")
-    .mockRejectedValueOnce(closeCause);
+    .mockImplementation(async function (this: OwnedFileHandle) {
+      if (isManifestOwner(this)) return originalClose.call(this);
+      if (!rejected) {
+        rejected = true;
+        throw closeCause;
+      }
+      return originalClose.call(this);
+    });
   const firstLookup = warmCache
     .lookup(built.value.key)
     .catch((cause: unknown) => cause);
@@ -421,9 +501,11 @@ it("blocks repeated cache reads while a retained hash descriptor cannot close", 
   const blocked: ProviderCleanupError[] = [];
   const blockedByKey = new Map<string, ProviderCleanupError[]>();
   let closeAggregate: ProviderCleanupError | undefined;
+  const originalClose = OwnedFileHandle.prototype.close;
   const close = vi
     .spyOn(OwnedFileHandle.prototype, "close")
     .mockImplementation(function (this: OwnedFileHandle) {
+      if (isManifestOwner(this)) return originalClose.call(this);
       owners.add(this);
       return Promise.reject(persistentCloseCause);
     });

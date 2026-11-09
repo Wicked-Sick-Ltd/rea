@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import {
   mkdir,
   mkdtemp,
+  open,
   readdir,
-  readFile,
   rename,
   rm,
   stat,
@@ -32,7 +33,7 @@ import {
   RegularFileCleanupFailure,
   regularFileCancellation,
 } from "../filesystem/OwnedRegularFile.js";
-import type { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
+import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import type { KunaInstallation } from "./KunaInstallation.js";
 import {
   exportKunaProject,
@@ -291,6 +292,11 @@ export class KunaProjectCache {
   >();
   /** Hash descriptors whose close was not confirmed; staging stays until retry. */
   readonly #retainedHashFiles = new Map<OwnedFileHandle, RetainedHashFile>();
+  /** Manifest descriptors whose close was not confirmed. */
+  readonly #retainedManifests = new Map<
+    OwnedFileHandle,
+    { readonly path: string; error: ProviderCleanupError }
+  >();
   /** Keep the exact close lease available for errors bound after a retry ends. */
   readonly #hashRecords = new WeakMap<OwnedFileHandle, RetainedHashFile>();
   /** Serialize owner release and staging retirement across concurrent lookups. */
@@ -316,7 +322,8 @@ export class KunaProjectCache {
     return (
       this.#retainedProcesses.length > 0 ||
       this.#retainedFiles.size > 0 ||
-      this.#retainedHashFiles.size > 0
+      this.#retainedHashFiles.size > 0 ||
+      this.#retainedManifests.size > 0
     );
   }
 
@@ -346,6 +353,9 @@ export class KunaProjectCache {
     await this.#retryHashFiles(key);
     const cleanup = this.#cleanupResult(this.#hashCleanupFailures(key));
     if (!cleanup.ok) throw cleanup.error;
+    await this.#retryManifests();
+    const retainedManifest = [...this.#retainedManifests.values()][0];
+    if (retainedManifest !== undefined) throw retainedManifest.error;
     const verified = this.#verified.get(key);
     if (verified !== undefined) {
       // Another process may have evicted it since this one verified it.
@@ -503,6 +513,7 @@ export class KunaProjectCache {
 
   /** Retry only stopped file resources belonging to the closing task, or all. */
   async #retryFiles(key?: string): Promise<void> {
+    await this.#retryManifests();
     await this.#retryHashFiles(key);
     for (const [path, retained] of [...this.#retainedFiles])
       if (key === undefined || retained.key === key)
@@ -603,7 +614,39 @@ export class KunaProjectCache {
           owners: [retained.cleanupOwner],
         })),
       ...this.#hashCleanupFailures(key),
+      ...[...this.#retainedManifests.entries()].map(([owner, retained]) => ({
+        error: retained.error,
+        owners: [owner],
+      })),
     ];
+  }
+
+  async #retryManifests(): Promise<void> {
+    for (const [owner, retained] of [...this.#retainedManifests]) {
+      try {
+        await owner.close();
+        this.#retainedManifests.delete(owner);
+        this.#resolveCleanupOwner(owner);
+      } catch (cause: unknown) {
+        const previous = retained.error;
+        const failure = new ProviderCleanupError(
+          KUNA_PROVIDER_ID,
+          [retained.path],
+          {
+            reason: cause instanceof Error ? cause.message : String(cause),
+          },
+          {
+            operation: KUNA_EXPORT_OPERATION,
+            cause: new AggregateError(
+              [previous, cause],
+              "Manifest descriptor close failed again",
+            ),
+          },
+        );
+        retained.error = failure;
+        this.#bindCleanupError(failure, [owner]);
+      }
+    }
   }
 
   #cleanupResult(
@@ -982,7 +1025,10 @@ export class KunaProjectCache {
       if (status === undefined) continue;
       const manifest = await this.#readBounded(join(path, "manifest.json"))
         .then(parseManifest)
-        .catch(() => undefined);
+        .catch((cause: unknown) => {
+          if (cause instanceof ProviderCleanupError) throw cause;
+          return undefined;
+        });
       // An owned entry without a valid manifest is unusable; evict it first.
       entries.push(
         manifest === undefined
@@ -1054,12 +1100,62 @@ export class KunaProjectCache {
   }
 
   async #readBounded(path: string): Promise<string> {
-    const status = await stat(path);
-    if (status.size > MANIFEST_MAX_BYTES)
-      throw new RangeError(
-        `${path} exceeds ${String(MANIFEST_MAX_BYTES)} bytes`,
+    await this.#retryManifests();
+    const pending = [...this.#retainedManifests.values()][0];
+    if (pending !== undefined) throw pending.error;
+    const owner = new OwnedFileHandle(await open(path, constants.O_RDONLY));
+    let failure: unknown;
+    let text: string | undefined;
+    try {
+      const status = await owner.handle.stat();
+      if (status.size > MANIFEST_MAX_BYTES)
+        throw new RangeError(
+          `${path} exceeds ${String(MANIFEST_MAX_BYTES)} bytes`,
+        );
+      const raw = Buffer.alloc(MANIFEST_MAX_BYTES + 1);
+      let offset = 0;
+      while (offset < raw.length) {
+        const { bytesRead } = await owner.handle.read(
+          raw,
+          offset,
+          raw.length - offset,
+          offset,
+        );
+        if (bytesRead === 0) break;
+        offset += bytesRead;
+      }
+      if (offset > MANIFEST_MAX_BYTES)
+        throw new RangeError(
+          `${path} exceeds ${String(MANIFEST_MAX_BYTES)} bytes`,
+        );
+      text = raw.subarray(0, offset).toString("utf8");
+    } catch (cause: unknown) {
+      failure = cause;
+    }
+    try {
+      await owner.close();
+    } catch (cause: unknown) {
+      const error = new ProviderCleanupError(
+        KUNA_PROVIDER_ID,
+        [path],
+        { reason: cause instanceof Error ? cause.message : String(cause) },
+        {
+          operation: KUNA_EXPORT_OPERATION,
+          cause:
+            failure === undefined
+              ? cause
+              : new AggregateError(
+                  [failure, cause],
+                  "Manifest read and descriptor close both failed",
+                ),
+        },
       );
-    return readFile(path, "utf8");
+      this.#bindCleanupError(error, [owner]);
+      this.#retainedManifests.set(owner, { path, error });
+    }
+    if (failure !== undefined) throw failure;
+    if (text === undefined) throw new Error("Manifest read produced no text");
+    return text;
   }
 
   #retainFileCleanup(

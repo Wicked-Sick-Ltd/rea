@@ -36,11 +36,13 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     open: async (...args: Parameters<typeof original.open>) => {
       const handle = await original.open(...args);
       const flags = args[1];
-      if (
-        args[0] !== fault.path ||
-        typeof flags !== "number" ||
-        (flags & (constants.O_WRONLY | constants.O_RDWR)) !== 0
-      )
+      // Readback uses the exclusive O_RDWR descriptor. Write-only opens have
+      // no read to fault. Read-only opens stay instrumented for unpacked ASAR.
+      const writeOnly =
+        typeof flags === "number" &&
+        (flags & constants.O_WRONLY) !== 0 &&
+        (flags & constants.O_RDWR) === 0;
+      if (args[0] !== fault.path || typeof flags !== "number" || writeOnly)
         return handle;
       fault.opened.push(handle);
       const read = handle.read.bind(handle);

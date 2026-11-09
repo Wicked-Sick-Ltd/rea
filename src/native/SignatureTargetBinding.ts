@@ -6,6 +6,7 @@ import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import type { InspectSignature } from "../domain/native/nativeInspection.js";
 import {
   assertRegularFileActive,
+  isUnopenableFileTypeError,
   RegularFileOperationCancelled,
 } from "../filesystem/RegularFile.js";
 import { AnalysisError } from "../domain/analysisErrorBase.js";
@@ -49,6 +50,18 @@ export interface SignatureTargetBinding {
 
 const identity = (stat: BigIntStats): string =>
   [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
+
+/** A socket or fifo cannot be opened; confirm that before calling it a changed target. */
+const unopenableNonRegularTarget = async (
+  path: string,
+  cause: unknown,
+): Promise<boolean> => {
+  if (!isUnopenableFileTypeError(cause)) return false;
+  const metadata = await lstat(path, { bigint: true }).catch(() => undefined);
+  return (
+    metadata !== undefined && (!metadata.isFile() || metadata.isSymbolicLink())
+  );
+};
 
 const changedTarget = (target: BinaryTarget, reason: string) =>
   err(
@@ -319,17 +332,25 @@ const bindSignatureTarget = async (
   > => {
     try {
       assertRegularFileActive(signal);
-      const before = await lstat(target.path, { bigint: true });
-      assertRegularFileActive(signal);
-      if (!before.isFile() || before.isSymbolicLink())
-        return changedTarget(
-          target,
-          `Signature target is no longer a regular file: ${target.path}`,
+      let file: FileHandle;
+      try {
+        file = await open(
+          target.path,
+          constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
         );
-      const file = await open(
-        target.path,
-        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-      );
+      } catch (cause: unknown) {
+        const code =
+          cause instanceof Error && "code" in cause ? cause.code : undefined;
+        if (
+          code === "ELOOP" ||
+          (await unopenableNonRegularTarget(target.path, cause))
+        )
+          return changedTarget(
+            target,
+            `Signature target is no longer a regular file: ${target.path}`,
+          );
+        throw cause;
+      }
       const sourceHandle = new OwnedFileHandle(file);
       sourceOwner = {
         kind: "lease",
@@ -341,10 +362,10 @@ const bindSignatureTarget = async (
       };
       const opened = await file.stat({ bigint: true });
       assertRegularFileActive(signal);
-      if (identity(opened) !== identity(before))
+      if (!opened.isFile())
         return changedTarget(
           target,
-          `Signature target changed before open: ${target.path}`,
+          `Signature target is no longer a regular file: ${target.path}`,
         );
       const snapshot = await snapshotIO(target, "create-file", () =>
         open(snapshotPath, "wx", 0o600),

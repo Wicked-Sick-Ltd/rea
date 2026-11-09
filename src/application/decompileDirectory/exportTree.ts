@@ -594,24 +594,47 @@ interface OpenedJournal {
   readonly journalBytes: number;
 }
 
-/** Read the journal only when it is a regular file, not a symlink. */
+/** Read the journal from one descriptor, and only when that descriptor is a regular file. */
 const readJournalBytes = async (
   root: string,
   resources: ExportResources,
 ): Promise<unknown> => {
   const path = join(root, DECOMPILE_DIRECTORY_JOURNAL_NAME);
-  const stat = await lstat(path).catch((cause: unknown) => cause);
-  if (!isStat(stat)) return stat;
-  if (!stat.isFile()) return new Error("journal is not a regular file");
-  const handle = await open(path, constants.O_RDONLY | NO_FOLLOW).catch(
-    (cause: unknown) => cause,
-  );
-  if (!isFileHandle(handle)) return handle;
+  const handle = await open(
+    path,
+    constants.O_RDONLY | NO_FOLLOW | (constants.O_NONBLOCK ?? 0),
+  ).catch((cause: unknown) => cause);
+  if (!isFileHandle(handle)) {
+    // O_NOFOLLOW rejects a symlink before it can be followed.
+    if (nodeCode(handle) === "ELOOP")
+      return new Error("journal is not a regular file");
+    return handle;
+  }
   const close = resources.ownFile(handle, path);
+  const finish = async (result: unknown): Promise<unknown> =>
+    (await close())
+      ? result
+      : new Error("decompile journal read handle could not be closed");
+  const metadata = await handle.stat().catch((cause: unknown) => cause);
+  if (!isStat(metadata)) return finish(metadata);
+  if (!metadata.isFile())
+    return finish(new Error("journal is not a regular file"));
+  // Without pathname O_NOFOLLOW, require the name to denote this descriptor.
+  if (NO_FOLLOW === 0) {
+    const named = await lstat(path).catch((cause: unknown) => cause);
+    if (
+      !isStat(named) ||
+      named.isSymbolicLink() ||
+      !named.isFile() ||
+      named.dev !== metadata.dev ||
+      named.ino !== metadata.ino
+    )
+      return finish(
+        isStat(named) ? new Error("journal is not a regular file") : named,
+      );
+  }
   const bytes = await handle.readFile().catch((cause: unknown) => cause);
-  return (await close())
-    ? bytes
-    : new Error("decompile journal read handle could not be closed");
+  return finish(bytes);
 };
 
 const readJournal = async (
@@ -949,12 +972,16 @@ const isSymlinkStat = (value: unknown): boolean =>
 const isStat = (
   value: unknown,
 ): value is {
+  dev: number | bigint;
+  ino: number | bigint;
   isDirectory: () => boolean;
   isFile: () => boolean;
   isSymbolicLink: () => boolean;
 } =>
   typeof value === "object" &&
   value !== null &&
+  "dev" in value &&
+  "ino" in value &&
   "isDirectory" in value &&
   "isFile" in value &&
   "isSymbolicLink" in value &&

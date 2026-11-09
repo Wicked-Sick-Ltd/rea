@@ -1254,13 +1254,14 @@ it("reports omitted Dart labels independently of toolchain labels", async () => 
   });
 });
 
-it.each([0, 1, 2, 3])(
+it.each([0, 1, 2])(
   "retains failed local file-handle closure at acquisition stage %i",
   async (stage) => {
     const path = await buildApk("file-close.apk", [
       { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
     ]);
-    // Close order: snapshot writer, admitted source, extracted-image writer, image reader.
+    // Close order: snapshot writer, admitted source, extracted image.
+    // The image is written and parsed on one exclusive descriptor.
     const owners: OwnedFileHandle[] = [];
     const originalClose = OwnedFileHandle.prototype.close;
     let failing = true;
