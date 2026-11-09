@@ -171,7 +171,7 @@ const UNOPENABLE_FILE_TYPE_ERRNOS: ReadonlySet<number> = new Set(
   ),
 );
 
-const isUnopenableFileTypeError = (cause: unknown): boolean =>
+export const isUnopenableFileTypeError = (cause: unknown): boolean =>
   cause instanceof Error &&
   "errno" in cause &&
   typeof cause.errno === "number" &&

@@ -7,6 +7,7 @@ import type {
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { open, rm, writeFile } from "node:fs/promises";
+import { OwnedFileHandle } from "../../filesystem/OwnedFileHandle.js";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
@@ -123,6 +124,8 @@ export class JavaScriptAnalysisWorker {
   #sourcesRemaining: number | undefined;
   #deadline: ProviderStartupDeadline | undefined;
   #resultBudgetBytes = 0;
+  /** Checkpoint descriptors whose close is still unconfirmed. */
+  readonly #checkpointHandles: OwnedFileHandle[] = [];
   /** Null when the runtime enforces the V8 heap flags instead. */
   readonly #processMemoryLimitBytes: number | null;
   readonly #onStdout = (chunk: Buffer | string): void => {
@@ -537,6 +540,7 @@ export class JavaScriptAnalysisWorker {
     const rootPath = this.#runtime.rootPath;
     if (rootPath !== undefined && !this.#runtime.hasPendingCleanup) {
       try {
+        await this.#releaseCheckpointHandles();
         for (const suffix of ["source", "static.json", "records"])
           await rm(join(rootPath, `${id}.${suffix}`), { force: true });
       } catch (cause: unknown) {
@@ -567,6 +571,7 @@ export class JavaScriptAnalysisWorker {
   /** Verify process cleanup, then release the private runtime; failed close is retryable. */
   async close(): Promise<void> {
     try {
+      await this.#releaseCheckpointHandles();
       await this.#runtime.close();
       this.#ready = false;
       this.#resetState();
@@ -693,9 +698,12 @@ export class JavaScriptAnalysisWorker {
     if (rootPath === undefined)
       throw new TypeError("JavaScript checkpoint has no owned runtime");
     const path = join(rootPath, `${id}.static.json`);
-    const handle = await open(path, constants.O_RDONLY);
+    await this.#releaseCheckpointHandles();
+    const owner = new OwnedFileHandle(await open(path, constants.O_RDONLY));
+    let primary: unknown;
+    let facts: JavaScriptStaticAnalysis | undefined;
     try {
-      const bytes = (await handle.stat()).size;
+      const bytes = (await owner.handle.stat()).size;
       if (
         bytes > DEFAULTS.checkpointBytes ||
         (expected !== undefined && expected.bytes !== bytes)
@@ -714,7 +722,7 @@ export class JavaScriptAnalysisWorker {
             remediationAction: JAVASCRIPT_PARENT_CHECKPOINT_HEAP_REMEDIATION,
           },
         );
-      const text = await handle.readFile("utf8");
+      const text = await owner.handle.readFile("utf8");
       if (
         expected !== undefined &&
         createHash("sha256").update(text).digest("hex") !== expected.sha256
@@ -724,13 +732,13 @@ export class JavaScriptAnalysisWorker {
           "JavaScript static checkpoint digest does not match",
         );
       const value: unknown = JSON.parse(text);
-      const facts = javaScriptWorkerStaticAnalysisSchema.parse(value);
+      const parsed = javaScriptWorkerStaticAnalysisSchema.parse(value);
       const remaining = this.#remainingTotalResultBudget();
       const retainedBytes = bytes * STATIC_CHECKPOINT_RETENTION_EXPANSION;
       this.#parentCapacityExhausted = retainedBytes > remaining;
       this.#estimatedRetainedBytes += retainedBytes;
       const expandedBytes = estimateJavaScriptStaticApplicationProjection(
-        facts,
+        parsed,
         bytes,
         sourcePath,
       );
@@ -752,10 +760,53 @@ export class JavaScriptAnalysisWorker {
               remediationAction: `Read the complete static facts on the file node or analyze fewer source files. Expanded application relationships exceed the parent result budget. ${JAVASCRIPT_PARENT_RESULT_BUDGET_REMEDIATION}`,
             },
           );
-      return facts;
-    } finally {
-      await handle.close();
+      facts = parsed;
+    } catch (cause: unknown) {
+      primary = cause;
     }
+    try {
+      await owner.close();
+    } catch (cause: unknown) {
+      this.#retainCheckpointHandle(owner, cause);
+    }
+    if (primary !== undefined) throw primary;
+    if (facts === undefined)
+      throw new TypeError("JavaScript checkpoint read produced no facts");
+    return facts;
+  }
+
+  async #releaseCheckpointHandles(): Promise<void> {
+    const failures: unknown[] = [];
+    for (const retained of [...this.#checkpointHandles]) {
+      try {
+        await retained.close();
+        const index = this.#checkpointHandles.indexOf(retained);
+        if (index >= 0) this.#checkpointHandles.splice(index, 1);
+      } catch (cause: unknown) {
+        failures.push(cause);
+      }
+    }
+    if (failures.length === 0) return;
+    this.#runtime.retainForCleanup();
+    const error = this.#cleanupError(
+      failures
+        .map((cause) =>
+          cause instanceof Error ? cause.message : String(cause),
+        )
+        .join("; "),
+    );
+    this.#runtime.bindCleanupFailure(error);
+    throw error;
+  }
+
+  #retainCheckpointHandle(owner: OwnedFileHandle, cause: unknown): void {
+    if (!this.#checkpointHandles.includes(owner))
+      this.#checkpointHandles.push(owner);
+    this.#runtime.retainForCleanup();
+    const error = this.#cleanupError(
+      cause instanceof Error ? cause.message : String(cause),
+    );
+    this.#runtime.bindCleanupFailure(error);
   }
 
   #limits() {

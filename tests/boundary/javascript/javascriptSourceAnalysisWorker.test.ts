@@ -3,7 +3,33 @@ import { execFile } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+
+const checkpointClose = vi.hoisted(() => ({
+  fail: false,
+  refusals: 0,
+}));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    open: async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args);
+      if (!checkpointClose.fail || !String(args[0]).endsWith(".static.json"))
+        return handle;
+      const close = handle.close.bind(handle);
+      handle.close = async () => {
+        if (checkpointClose.fail) {
+          checkpointClose.refusals += 1;
+          throw new Error("checkpoint close refused");
+        }
+        await close();
+      };
+      return handle;
+    },
+  };
+});
 import { JavaScriptAnalysisWorker } from "../../../src/javascript/analysis/JavaScriptAnalysisWorker.js";
 import { createJavaScriptSourceAnalysis } from "../../../src/artifacts/javascript/JavaScriptSourceAnalysis.js";
 import { ArtifactResourceScope } from "../../../src/artifacts/ArtifactResourceScope.js";
@@ -821,5 +847,34 @@ it("keeps wrapped route ancestry, navigation and unknown named parents in the re
     );
   } finally {
     await worker.close();
+  }
+});
+
+it("returns checkpoint facts when the checkpoint descriptor close fails, then retries that close", async () => {
+  checkpointClose.fail = true;
+  checkpointClose.refusals = 0;
+  const worker = new JavaScriptAnalysisWorker({
+    heapMb: 128,
+    timeoutMs: 30_000,
+  });
+  let closed = false;
+  try {
+    const result = await worker.analyze(
+      source(
+        "first.mjs",
+        "export function create() { return { observed: 7 }; }",
+      ),
+      { nodes: 100, unknowns: 100 },
+    );
+    expect(checkpointClose.refusals).toBeGreaterThan(0);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.javascript.parse_status).toBe("complete");
+    checkpointClose.fail = false;
+    await worker.close();
+    closed = true;
+  } finally {
+    checkpointClose.fail = false;
+    if (!closed) await worker.close().catch(() => undefined);
   }
 });

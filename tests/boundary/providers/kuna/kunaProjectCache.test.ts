@@ -14,6 +14,30 @@ import { join } from "node:path";
 
 import { expect, it as test, vi } from "vitest";
 
+const manifestClose = vi.hoisted(() => ({
+  fail: false,
+  suffix: "",
+}));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    open: async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args);
+      const target = String(args[0]);
+      if (!manifestClose.fail || !target.endsWith(manifestClose.suffix))
+        return handle;
+      const close = handle.close.bind(handle);
+      handle.close = async () => {
+        if (manifestClose.fail) throw new Error("manifest close refused");
+        await close();
+      };
+      return handle;
+    },
+  };
+});
+
 import { inspectKunaInstallationOwned as inspectKunaInstallation } from "./kunaResourceScope.js";
 import { cleanupOwnedProcessGroup } from "../../../../src/process/ProcessOwnership.js";
 import { spawnOwnedProviderProcess } from "../../../../src/process/ProviderProcess.js";
@@ -213,6 +237,38 @@ it("publishes a verified export and serves later requests from the cache", async
     inventory: built.value.inventory,
   });
   expect(await callsOf(kuna, "decompile-project")).toHaveLength(1);
+});
+
+it("keeps a published manifest when its descriptor close fails, then retries that close", async () => {
+  const { installation, cache, target } = await fixture(
+    "rea-kuna-cache-manifest-close-",
+  );
+  const input = await target("program");
+  const built = await cache.build({ installation, ...input });
+  if (!built.ok) throw built.error;
+  const warmCache = newCache(installation);
+  manifestClose.suffix = join("projects", built.value.key, "manifest.json");
+  manifestClose.fail = true;
+  try {
+    await expect(warmCache.lookup(built.value.key)).resolves.toMatchObject({
+      key: built.value.key,
+    });
+    expect(warmCache.hasPendingCleanup).toBe(true);
+    await expect(warmCache.lookup(built.value.key)).rejects.toBeInstanceOf(
+      ProviderCleanupError,
+    );
+    manifestClose.fail = false;
+    await expect(warmCache.lookup(built.value.key)).resolves.toMatchObject({
+      key: built.value.key,
+    });
+    expect(warmCache.hasPendingCleanup).toBe(false);
+    expect(await warmCache.close()).toEqual({ ok: true, value: null });
+  } finally {
+    manifestClose.fail = false;
+    manifestClose.suffix = "";
+    await warmCache.close();
+    await cache.close();
+  }
 });
 
 it("retains a failed warm-cache hash descriptor and retries it at cache close", async () => {

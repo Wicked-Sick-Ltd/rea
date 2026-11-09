@@ -9,6 +9,7 @@ import {
   open,
   type FileHandle,
 } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi, onTestFinished } from "vitest";
@@ -91,6 +92,35 @@ const createRoot = async (failedAttempts = 0) => {
     },
   };
 };
+
+it("rejects a unix socket target as a changed artifact", async () => {
+  const target = await createTarget("registered bytes");
+  await rm(target.path);
+  const server = createServer();
+  const resources = new ArtifactResourceScope();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(target.path, () => resolve());
+  });
+  try {
+    const result = await withSignatureTarget(
+      target,
+      resources,
+      unusedInspection,
+      undefined,
+      () => createRoot(),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(projectAnalysisError(result.error)).toMatchObject({
+      code: "artifact_changed",
+      details: { path: target.path },
+    });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await resources.close();
+  }
+});
 
 it("retains a snapshot root after cleanup fails alongside a digest mismatch", async () => {
   const target = await createTarget("observed", "expected");
