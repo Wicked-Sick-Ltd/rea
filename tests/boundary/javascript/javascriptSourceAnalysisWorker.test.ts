@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect, it, vi } from "vitest";
@@ -876,5 +876,46 @@ it("returns checkpoint facts when the checkpoint descriptor close fails, then re
   } finally {
     checkpointClose.fail = false;
     if (!closed) await worker.close().catch(() => undefined);
+  }
+});
+
+it("keeps the runtime root when another worker starts while checkpoint close is denied", async () => {
+  checkpointClose.fail = true;
+  checkpointClose.refusals = 0;
+  let root: string | undefined;
+  const first = new JavaScriptAnalysisWorker(
+    { heapMb: 128, timeoutMs: 30_000 },
+    async (request) => {
+      root = request.cwd;
+      return spawnOwnedProviderProcess(request);
+    },
+  );
+  const second = new JavaScriptAnalysisWorker({
+    heapMb: 128,
+    timeoutMs: 30_000,
+  });
+  try {
+    const analyzed = await first.analyze(
+      source(
+        "first.mjs",
+        "export function create() { return { observed: 7 }; }",
+      ),
+      { nodes: 100, unknowns: 100 },
+    );
+    expect(analyzed.ok).toBe(true);
+    expect(checkpointClose.refusals).toBeGreaterThan(0);
+    if (root === undefined) throw new Error("Worker root was not observed");
+    const started = await second.analyze(
+      source("second.mjs", "export const value = 1;"),
+      { nodes: 100, unknowns: 100 },
+    );
+    expect(started.ok).toBe(false);
+    await expect(stat(root)).resolves.toMatchObject({
+      isDirectory: expect.any(Function),
+    });
+  } finally {
+    checkpointClose.fail = false;
+    await first.close().catch(() => undefined);
+    await second.close().catch(() => undefined);
   }
 });

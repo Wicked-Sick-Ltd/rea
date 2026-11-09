@@ -170,6 +170,7 @@ export class JavaScriptAnalysisWorker {
     this.#runtime = new OwnedWorkerRuntime({
       rootPrefix: "rea-javascript-analysis-",
       launcher,
+      retryCleanup: () => this.close(),
       supervisorOptions: {
         captureStdout: false,
         maxDiagnosticBytes: 256 * 1024,
@@ -568,9 +569,15 @@ export class JavaScriptAnalysisWorker {
     return result;
   }
 
-  /** Verify process cleanup, then release the private runtime; failed close is retryable. */
+  /** Stop the child, retry checkpoint descriptors, then release the runtime root. */
   async close(): Promise<void> {
     try {
+      const stopped = await this.#runtime.stop();
+      if (stopped.status === "incomplete") {
+        const error = this.#cleanupError(stopped.reason);
+        this.#runtime.bindCleanupFailure(error);
+        throw error;
+      }
       await this.#releaseCheckpointHandles();
       await this.#runtime.close();
       this.#ready = false;

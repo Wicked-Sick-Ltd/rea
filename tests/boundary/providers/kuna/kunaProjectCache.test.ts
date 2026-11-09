@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readlinkSync } from "node:fs";
 import {
   appendFile,
   chmod,
@@ -60,6 +61,17 @@ import {
 } from "./fakeKuna.js";
 
 const it = test.skipIf(process.platform === "win32");
+
+const isManifestOwner = (owner: OwnedFileHandle): boolean => {
+  if (owner.handle.fd < 0) return false;
+  try {
+    return readlinkSync(`/proc/self/fd/${String(owner.handle.fd)}`).endsWith(
+      "manifest.json",
+    );
+  } catch {
+    return false;
+  }
+};
 
 interface Target {
   readonly targetPath: string;
@@ -279,9 +291,18 @@ it("retains a failed warm-cache hash descriptor and retries it at cache close", 
   const built = await cache.build({ installation, ...input });
   if (!built.ok) throw built.error;
   const closeCause = new Error("injected warm-cache descriptor close failure");
+  const originalClose = OwnedFileHandle.prototype.close;
+  let rejected = false;
   const close = vi
     .spyOn(OwnedFileHandle.prototype, "close")
-    .mockRejectedValueOnce(closeCause);
+    .mockImplementation(async function (this: OwnedFileHandle) {
+      if (isManifestOwner(this)) return originalClose.call(this);
+      if (!rejected) {
+        rejected = true;
+        throw closeCause;
+      }
+      return originalClose.call(this);
+    });
   const warmCache = newCache(installation);
   try {
     const failure = await warmCache
@@ -327,6 +348,7 @@ it.each(["success", "failure"] as const)(
     const close = vi
       .spyOn(OwnedFileHandle.prototype, "close")
       .mockImplementation(function (this: OwnedFileHandle) {
+        if (isManifestOwner(this)) return closeOwner.call(this);
         const count = (closeCounts.get(this) ?? 0) + 1;
         closeCounts.set(this, count);
         if (count === 1 && retainedOwner === undefined) {
@@ -425,9 +447,18 @@ it("resolves a hash failure delivered after its retained owner was released", as
       }
     });
   const closeCause = new Error("initial hash descriptor close failure");
+  const originalClose = OwnedFileHandle.prototype.close;
+  let rejected = false;
   const close = vi
     .spyOn(OwnedFileHandle.prototype, "close")
-    .mockRejectedValueOnce(closeCause);
+    .mockImplementation(async function (this: OwnedFileHandle) {
+      if (isManifestOwner(this)) return originalClose.call(this);
+      if (!rejected) {
+        rejected = true;
+        throw closeCause;
+      }
+      return originalClose.call(this);
+    });
   const firstLookup = warmCache
     .lookup(built.value.key)
     .catch((cause: unknown) => cause);
@@ -477,9 +508,11 @@ it("blocks repeated cache reads while a retained hash descriptor cannot close", 
   const blocked: ProviderCleanupError[] = [];
   const blockedByKey = new Map<string, ProviderCleanupError[]>();
   let closeAggregate: ProviderCleanupError | undefined;
+  const originalClose = OwnedFileHandle.prototype.close;
   const close = vi
     .spyOn(OwnedFileHandle.prototype, "close")
     .mockImplementation(function (this: OwnedFileHandle) {
+      if (isManifestOwner(this)) return originalClose.call(this);
       owners.add(this);
       return Promise.reject(persistentCloseCause);
     });

@@ -9,7 +9,6 @@ import {
   rm,
   stat,
   utimes,
-  type FileHandle,
 } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -34,7 +33,7 @@ import {
   RegularFileCleanupFailure,
   regularFileCancellation,
 } from "../filesystem/OwnedRegularFile.js";
-import type { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
+import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import type { KunaInstallation } from "./KunaInstallation.js";
 import {
   exportKunaProject,
@@ -295,12 +294,8 @@ export class KunaProjectCache {
   readonly #retainedHashFiles = new Map<OwnedFileHandle, RetainedHashFile>();
   /** Manifest descriptors whose close was not confirmed. */
   readonly #retainedManifests = new Map<
-    FileHandle,
-    {
-      readonly path: string;
-      readonly owner: object;
-      error: ProviderCleanupError;
-    }
+    OwnedFileHandle,
+    { readonly path: string; error: ProviderCleanupError }
   >();
   /** Keep the exact close lease available for errors bound after a retry ends. */
   readonly #hashRecords = new WeakMap<OwnedFileHandle, RetainedHashFile>();
@@ -619,19 +614,19 @@ export class KunaProjectCache {
           owners: [retained.cleanupOwner],
         })),
       ...this.#hashCleanupFailures(key),
-      ...[...this.#retainedManifests.values()].map((retained) => ({
+      ...[...this.#retainedManifests.entries()].map(([owner, retained]) => ({
         error: retained.error,
-        owners: [retained.owner],
+        owners: [owner],
       })),
     ];
   }
 
   async #retryManifests(): Promise<void> {
-    for (const [handle, retained] of [...this.#retainedManifests]) {
+    for (const [owner, retained] of [...this.#retainedManifests]) {
       try {
-        await handle.close();
-        this.#retainedManifests.delete(handle);
-        this.#resolveCleanupOwner(retained.owner);
+        await owner.close();
+        this.#retainedManifests.delete(owner);
+        this.#resolveCleanupOwner(owner);
       } catch (cause: unknown) {
         const previous = retained.error;
         const failure = new ProviderCleanupError(
@@ -649,7 +644,7 @@ export class KunaProjectCache {
           },
         );
         retained.error = failure;
-        this.#bindCleanupError(failure, [retained.owner]);
+        this.#bindCleanupError(failure, [owner]);
       }
     }
   }
@@ -1108,11 +1103,11 @@ export class KunaProjectCache {
     await this.#retryManifests();
     const pending = [...this.#retainedManifests.values()][0];
     if (pending !== undefined) throw pending.error;
-    const handle = await open(path, constants.O_RDONLY);
+    const owner = new OwnedFileHandle(await open(path, constants.O_RDONLY));
     let failure: unknown;
     let text: string | undefined;
     try {
-      const status = await handle.stat();
+      const status = await owner.handle.stat();
       if (status.size > MANIFEST_MAX_BYTES)
         throw new RangeError(
           `${path} exceeds ${String(MANIFEST_MAX_BYTES)} bytes`,
@@ -1120,7 +1115,7 @@ export class KunaProjectCache {
       const raw = Buffer.alloc(MANIFEST_MAX_BYTES + 1);
       let offset = 0;
       while (offset < raw.length) {
-        const { bytesRead } = await handle.read(
+        const { bytesRead } = await owner.handle.read(
           raw,
           offset,
           raw.length - offset,
@@ -1138,9 +1133,8 @@ export class KunaProjectCache {
       failure = cause;
     }
     try {
-      await handle.close();
+      await owner.close();
     } catch (cause: unknown) {
-      const owner = {};
       const error = new ProviderCleanupError(
         KUNA_PROVIDER_ID,
         [path],
@@ -1157,7 +1151,7 @@ export class KunaProjectCache {
         },
       );
       this.#bindCleanupError(error, [owner]);
-      this.#retainedManifests.set(handle, { path, owner, error });
+      this.#retainedManifests.set(owner, { path, error });
     }
     if (failure !== undefined) throw failure;
     if (text === undefined) throw new Error("Manifest read produced no text");
