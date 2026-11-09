@@ -474,6 +474,45 @@ it.skipIf(process.platform === "win32").each([
   },
 );
 
+it.skipIf(process.platform === "win32").each([
+  {
+    qualified: "1111111111111111111111111111111111111111",
+    succeeds: true,
+  },
+  {
+    qualified: "2222222222222222222222222222222222222222",
+    succeeds: false,
+  },
+  { qualified: "not-a-sha", succeeds: false },
+  { qualified: "", succeeds: false },
+])(
+  "refuses release code when the qualified revision is not the workflow commit: $qualified",
+  async ({ qualified, succeeds }) => {
+    const gate = (await readReleaseWorkflow()).jobs.rehearsal.steps.find(
+      (step) =>
+        step.name ===
+        "Require the qualified revision to be this workflow commit",
+    );
+    const execution = execFileAsync(
+      "bash",
+      ["-e", "-o", "pipefail", "-c", z.string().parse(gate?.run)],
+      {
+        env: {
+          ...process.env,
+          QUALIFIED_SHA: qualified,
+          GITHUB_SHA: "1111111111111111111111111111111111111111",
+        },
+      },
+    );
+    if (succeeds)
+      await expect(execution).resolves.toMatchObject({ stderr: "" });
+    else
+      await expect(execution).rejects.toMatchObject({
+        stderr: expect.stringContaining("not this workflow commit"),
+      });
+  },
+);
+
 it("binds npm and MCP publication to the same immutable release SHA", async () => {
   const workflow = await readReleaseWorkflow();
   expect(workflow.jobs["release-please"].outputs).toEqual({
@@ -506,18 +545,34 @@ it("binds npm and MCP publication to the same immutable release SHA", async () =
   );
   expect(workflow.jobs.publish.needs).toContain("merged-release");
   expect(workflow.jobs["publish-mcp"].needs).toContain("merged-release");
+  const qualifiedRef =
+    "${{ needs.merged-release.outputs.sha || needs.release-please.outputs.sha }}";
   for (const job of [
     workflow.jobs.rehearsal,
     workflow.jobs.publish,
+    workflow.jobs["verify-npm"],
     workflow.jobs["publish-mcp"],
   ]) {
-    const checkout = job.steps.find((step) =>
+    const checkoutIndex = job.steps.findIndex((step) =>
       step.uses?.startsWith("actions/checkout@"),
     );
-    expect(checkout?.with).toMatchObject({
-      ref: "${{ needs.merged-release.outputs.sha || needs.release-please.outputs.sha }}",
+    expect(checkoutIndex).toBeGreaterThan(0);
+    expect(job.steps[checkoutIndex]?.with).toMatchObject({
+      ref: "${{ github.sha }}",
       "persist-credentials": false,
     });
+    expect(job.steps[checkoutIndex - 1]).toMatchObject({
+      name: "Require the qualified revision to be this workflow commit",
+      env: { QUALIFIED_SHA: qualifiedRef },
+    });
+    expect(job.steps[checkoutIndex - 1]?.run).toContain(
+      '"${QUALIFIED_SHA}" != "${GITHUB_SHA}"',
+    );
+    expect(
+      job.steps.some((step) =>
+        JSON.stringify(step.with ?? {}).includes("outputs."),
+      ),
+    ).toBe(false);
   }
   const preparation = [
     "Check out release pull request",
@@ -934,7 +989,14 @@ it("rehearses the qualified archive before npm authority and retains registry ve
     "id-token": "write",
   });
   expect(
-    publish.steps.filter((step) => step.run).map((step) => step.run),
+    publish.steps
+      .filter(
+        (step) =>
+          step.run !== undefined &&
+          step.name !==
+            "Require the qualified revision to be this workflow commit",
+      )
+      .map((step) => step.run),
   ).toEqual([
     "node scripts/ci/prepare-npm-publication.mjs",
     expect.stringContaining(
