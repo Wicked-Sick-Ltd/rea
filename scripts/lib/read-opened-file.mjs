@@ -5,21 +5,11 @@ export async function readOpenedFile(path) {
   const handle = await open(path, "r");
   try {
     const metadata = await handle.stat();
-    const buffer = Buffer.alloc(metadata.size);
-    let offset = 0;
-    while (offset < buffer.length) {
-      const { bytesRead } = await handle.read(
-        buffer,
-        offset,
-        buffer.length - offset,
-        offset,
-      );
-      if (bytesRead === 0) break;
-      offset += bytesRead;
-    }
+    // readFile follows this descriptor to EOF. A size taken before the read
+    // would miss bytes appended to the same inode.
     return {
       mode: metadata.mode & 0o7777,
-      bytes: offset === buffer.length ? buffer : buffer.subarray(0, offset),
+      bytes: await handle.readFile(),
     };
   } finally {
     await handle.close();
