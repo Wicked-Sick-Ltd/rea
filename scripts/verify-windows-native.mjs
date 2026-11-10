@@ -136,6 +136,12 @@ const environment = Object.entries(process.env)
   .map(([key, value]) => `${key}=${value}`);
 const quote = (value) =>
   `"${value.replace(/(\\*)"/gu, '$1$1\\"').replace(/(\\+)$/u, "$1$1")}"`;
+// The mixed spelling is the input, not a sanitizer: ordinaryDriveSeparators
+// admits X:/rest\of\path and the verifier asserts that requested path back.
+const forwardFirstSeparator = (path) => {
+  const index = path.indexOf("\\");
+  return index < 0 ? path : `${path.slice(0, index)}/${path.slice(index + 1)}`;
+};
 const delay = () => new Promise((resolve) => setTimeout(resolve, 25));
 const exists = (path) =>
   access(path).then(
@@ -249,7 +255,7 @@ process.stdout.write(JSON.stringify({executable:basename(process.execPath),abiVe
   try {
     for (const requested of [
       source.replaceAll("\\", "/"),
-      source.replace(/\\/u, "/"),
+      forwardFirstSeparator(source),
     ]) {
       const admitted = native.call("open", [requested]);
       try {
@@ -344,7 +350,7 @@ process.stdout.write(JSON.stringify({executable:basename(process.execPath),abiVe
   assert.equal(await exists(driveRootRuntime.path), false);
   report.controls.driveRootRuntimeParent = true;
   const snapshotOwner = WindowsPrivateRuntime.create(
-    workspace.replace(/\\/u, "/"),
+    forwardFirstSeparator(workspace),
     "single-flight-",
   );
   try {

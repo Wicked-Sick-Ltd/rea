@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, readFile, stat } from "node:fs/promises";
+import { chmod, open } from "node:fs/promises";
 import { relative, sep } from "node:path";
 
 import { parseArtifactInventoryEvidence } from "../../../dist/domain/artifactInventoryEvidence.js";
@@ -9,10 +9,27 @@ import {
   withArtifactMcp,
 } from "../../lib/artifact-e2e.mjs";
 
-/** Verify native file roles and permissions on the real compiled bundle fixture. */
-export async function verifyMachOOccurrences(app, executable) {
-  const originalMode = (await stat(executable)).mode & 0o7777;
-  const originalBytes = await readFile(executable);
+/** Read this descriptor from offset 0. A later readFile() would start at EOF. */
+const readOpenedFile = async (handle) => {
+  const { size } = await handle.stat();
+  const buffer = Buffer.alloc(size);
+  let offset = 0;
+  while (offset < buffer.length) {
+    const { bytesRead } = await handle.read(
+      buffer,
+      offset,
+      buffer.length - offset,
+      offset,
+    );
+    if (bytesRead === 0) break;
+    offset += bytesRead;
+  }
+  return offset === buffer.length ? buffer : buffer.subarray(0, offset);
+};
+
+const verifyOpenedMachOOccurrences = async (app, executable, handle) => {
+  const originalMode = (await handle.stat()).mode & 0o7777;
+  const originalBytes = await readOpenedFile(handle);
   const logicalPath = relative(app, executable).split(sep).join("/");
   const observations = [];
   try {
@@ -74,7 +91,7 @@ export async function verifyMachOOccurrences(app, executable) {
       });
     }
     assert.equal(observations[0].artifact_id, observations[1].artifact_id);
-    assert.deepEqual(await readFile(executable), originalBytes);
+    assert.deepEqual(await readOpenedFile(handle), originalBytes);
     return {
       direct_cli: true,
       contained_cli_mcp: true,
@@ -83,5 +100,15 @@ export async function verifyMachOOccurrences(app, executable) {
     };
   } finally {
     await chmod(executable, originalMode);
+  }
+};
+
+/** Verify native file roles and permissions on the real compiled bundle fixture. */
+export async function verifyMachOOccurrences(app, executable) {
+  const handle = await open(executable, "r");
+  try {
+    return await verifyOpenedMachOOccurrences(app, executable, handle);
+  } finally {
+    await handle.close();
   }
 }

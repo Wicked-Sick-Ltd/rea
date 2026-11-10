@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { open } from "node:fs/promises";
 
 import { ApktoolResourceAnalysisService } from "../dist/application/apktool/ApktoolResourceAnalysisService.js";
 import { createApktoolResourceAnalysisProvider } from "../dist/composition/apktool.js";
@@ -24,6 +24,19 @@ const check = (name, condition, detail = "") => {
     `[${mark}] ${name}${detail === "" ? "" : ` — ${detail}`}\n`,
   );
   if (!condition) failures += 1;
+};
+
+const digestOpenedFile = async (path) => {
+  const handle = await open(path, "r");
+  try {
+    const bytes = (await handle.stat()).size;
+    const digest = createHash("sha256")
+      .update(await handle.readFile())
+      .digest("hex");
+    return { bytes, digest };
+  } finally {
+    await handle.close();
+  }
 };
 
 const run = async (operation, input) => {
@@ -63,10 +76,7 @@ try {
       include_strings: true,
     });
     if (decoded !== null) {
-      const bytes = await stat(options.apk).then((info) => info.size);
-      const digest = createHash("sha256")
-        .update(await readFile(options.apk))
-        .digest("hex");
+      const { bytes, digest } = await digestOpenedFile(options.apk);
       check(
         "decoded target identity matches the file on disk",
         decoded.target.bytes === bytes && decoded.target.sha256 === digest,
