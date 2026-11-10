@@ -135,7 +135,7 @@ const createOmittedInventoryHost = () => {
             state.attached &&
             state.inventoryMode === "listed" &&
             state.mountPoint !== undefined
-              ? infoPlist("/tmp/image.dmg", [
+              ? infoPlist("/fixture/image.dmg", [
                   {
                     "dev-entry": "/dev/disk24",
                     "mount-point": state.mountPoint,
@@ -276,12 +276,16 @@ describe("DMG inventory reader ownership", () => {
 describe("native DMG lazy initialization", () => {
   it("does not attach before entries and stays closed when closed first", async () => {
     const calls: string[][] = [];
-    const reader = new NativeDmgArtifactReader("/tmp/image.dmg", process.env, {
-      run: (arguments_) => {
-        calls.push([...arguments_]);
-        return Promise.resolve({ stdout: "", exitCode: 0 });
+    const reader = new NativeDmgArtifactReader(
+      "/fixture/image.dmg",
+      process.env,
+      {
+        run: (arguments_) => {
+          calls.push([...arguments_]);
+          return Promise.resolve({ stdout: "", exitCode: 0 });
+        },
       },
-    });
+    );
 
     await reader.close();
     await expect(entryPaths(reader)).rejects.toMatchObject({
@@ -293,7 +297,7 @@ describe("native DMG lazy initialization", () => {
   it("shares one lazy attach across concurrent entries calls", async () => {
     const { host, state } = createOmittedInventoryHost();
     const reader = new NativeDmgArtifactReader(
-      "/tmp/image.dmg",
+      "/fixture/image.dmg",
       process.env,
       host,
     );
@@ -337,7 +341,7 @@ describe("native DMG lazy initialization", () => {
             stdout:
               !attached || mountPoint === undefined
                 ? emptyInfoPlist
-                : infoPlist("/tmp/image.dmg", [
+                : infoPlist("/fixture/image.dmg", [
                     { "dev-entry": "/dev/disk70", "mount-point": mountPoint },
                   ]),
             exitCode: 0,
@@ -355,7 +359,7 @@ describe("native DMG lazy initialization", () => {
       },
     };
     const reader = new NativeDmgArtifactReader(
-      "/tmp/image.dmg",
+      "/fixture/image.dmg",
       process.env,
       host,
     );
@@ -407,7 +411,7 @@ describe("native DMG directory ownership", () => {
             stdout:
               !attached || mountPoint === undefined
                 ? emptyInfoPlist
-                : infoPlist("/tmp/image.dmg", [
+                : infoPlist("/fixture/image.dmg", [
                     {
                       "dev-entry": "/dev/disk-unread",
                       "mount-point": mountPoint,
@@ -438,7 +442,7 @@ describe("native DMG directory ownership", () => {
       },
     };
     const reader = await createAttachedReader(
-      "/tmp/image.dmg",
+      "/fixture/image.dmg",
       process.env,
       undefined,
       host,
@@ -504,7 +508,7 @@ describe("native DMG traversal shutdown", () => {
       });
     try {
       const reader = await createAttachedReader(
-        "/tmp/image.dmg",
+        "/fixture/image.dmg",
         process.env,
         undefined,
         host,
@@ -541,7 +545,7 @@ describe("native DMG directory close recovery", () => {
       });
     try {
       const reader = await createAttachedReader(
-        "/tmp/image.dmg",
+        "/fixture/image.dmg",
         process.env,
         undefined,
         host,
@@ -584,7 +588,7 @@ describe("native DMG artifact reader", () => {
         if (args[0] === "info")
           return {
             stdout: attached
-              ? infoPlist("/tmp/image.dmg", [
+              ? infoPlist("/fixture/image.dmg", [
                   {
                     "dev-entry": "/dev/disk-fixture",
                     ...(mountPoint === undefined
@@ -611,7 +615,7 @@ describe("native DMG artifact reader", () => {
       },
     };
     const reader = await createAttachedReader(
-      "/tmp/image.dmg",
+      "/fixture/image.dmg",
       process.env,
       undefined,
       host,
@@ -636,7 +640,7 @@ describe("native DMG artifact reader", () => {
     Reflect.set(first, "tool", "forged");
     expect(reader.provenance()[0]?.tool).toBe("/usr/bin/hdiutil");
     await reader.close();
-    expect(calls).toContainEqual(["verify", "/tmp/image.dmg"]);
+    expect(calls).toContainEqual(["verify", "/fixture/image.dmg"]);
     expect(calls).toContainEqual(["detach", "/dev/disk-fixture"]);
   });
 
@@ -646,7 +650,7 @@ describe("native DMG artifact reader", () => {
     "rejects non-zero verification results (image not %s)",
     async (spelling) => {
       await expect(
-        createAttachedReader("/tmp/image.dmg", process.env, undefined, {
+        createAttachedReader("/fixture/image.dmg", process.env, undefined, {
           run: () =>
             Promise.resolve({
               stdout: "verify output",
@@ -658,7 +662,7 @@ describe("native DMG artifact reader", () => {
         reason: "format",
         message: expect.stringMatching(
           new RegExp(
-            `"arguments":\\["verify","/tmp/image\\.dmg"\\].*"exitCode":1.*"stderr":"hdiutil: verify failed - image not ${spelling}"`,
+            `"arguments":\\["verify","/fixture/image\\.dmg"\\].*"exitCode":1.*"stderr":"hdiutil: verify failed - image not ${spelling}"`,
             "u",
           ),
         ),
@@ -692,7 +696,7 @@ describe("native DMG artifact reader", () => {
       },
     };
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, host),
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, host),
     ).rejects.toMatchObject({
       reason: "format",
       cleanup: {
@@ -713,7 +717,7 @@ describe("DMG attach recovery", () => {
   it("keeps attach-output ownership when the first inventory omits the mount", async () => {
     const { host, state } = createOmittedInventoryHost();
     const reader = await createAttachedReader(
-      "/tmp/image.dmg",
+      "/fixture/image.dmg",
       process.env,
       undefined,
       host,
@@ -756,7 +760,7 @@ describe("DMG rooted ownership isolation", () => {
                 : build({
                     images: [
                       {
-                        "image-path": "/tmp/image.dmg",
+                        "image-path": "/fixture/image.dmg",
                         "system-entities": [
                           {
                             "dev-entry": "/dev/disk26",
@@ -794,7 +798,7 @@ describe("DMG rooted ownership isolation", () => {
     };
 
     const reader = await createAttachedReader(
-      "/tmp/image.dmg",
+      "/fixture/image.dmg",
       process.env,
       undefined,
       host,
@@ -841,7 +845,7 @@ describe("DMG failed attach output recovery", () => {
     };
 
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, host),
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, host),
     ).rejects.toThrow(/hdiutil attach failed/u);
     expect(calls).toContainEqual(["detach", "/dev/disk25"]);
     expect(
@@ -864,7 +868,7 @@ describe("DMG attach fallback recovery", () => {
             stdout:
               !attached || mountPoint === undefined
                 ? emptyInfoPlist
-                : infoPlist("/tmp/image.dmg", [
+                : infoPlist("/fixture/image.dmg", [
                     { "dev-entry": "/dev/disk20" },
                     {
                       "dev-entry": "/dev/disk20s1",
@@ -888,7 +892,7 @@ describe("DMG attach fallback recovery", () => {
     };
 
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, host),
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, host),
     ).rejects.toThrow();
     expect(calls.map(([operation]) => operation)).toEqual([
       "verify",
@@ -914,7 +918,9 @@ describe("DMG attach fallback recovery", () => {
             stdout:
               mount.root() === undefined
                 ? emptyInfoPlist
-                : infoPlist("/tmp/image.dmg", [{ "dev-entry": "/dev/disk23" }]),
+                : infoPlist("/fixture/image.dmg", [
+                    { "dev-entry": "/dev/disk23" },
+                  ]),
             exitCode: 0,
           });
         if (arguments_[0] !== "attach")
@@ -928,7 +934,7 @@ describe("DMG attach fallback recovery", () => {
     };
 
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, host),
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, host),
     ).rejects.toMatchObject({
       reason: "unavailable",
       cleanup: {
@@ -971,7 +977,7 @@ describe("DMG attach cancellation and preexisting mounts", () => {
               stdout:
                 !attached || mountPoint === undefined
                   ? emptyInfoPlist
-                  : infoPlist("/tmp/image.dmg", [
+                  : infoPlist("/fixture/image.dmg", [
                       {
                         "dev-entry": "/dev/disk21",
                         "mount-point": mountPoint,
@@ -1006,7 +1012,7 @@ describe("DMG attach cancellation and preexisting mounts", () => {
       };
 
       const creating = createAttachedReader(
-        "/tmp/image.dmg",
+        "/fixture/image.dmg",
         process.env,
         controller.signal,
         host,
@@ -1045,7 +1051,7 @@ describe("DMG attach cancellation and preexisting mounts", () => {
         calls.push([...arguments_]);
         if (arguments_[0] === "info")
           return {
-            stdout: infoPlist("/tmp/image.dmg", [
+            stdout: infoPlist("/fixture/image.dmg", [
               {
                 "dev-entry": "/dev/disk22",
                 "mount-point": "/Volumes/AlreadyMounted",
@@ -1068,7 +1074,7 @@ describe("DMG attach cancellation and preexisting mounts", () => {
     };
 
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, host),
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, host),
     ).rejects.toMatchObject({ reason: "path" });
     expect(calls.filter(([operation]) => operation === "detach")).toEqual([]);
     expect(calls.map(([operation]) => operation)).toEqual([
@@ -1110,7 +1116,7 @@ describe("native DMG command failure diagnostics", () => {
     };
 
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, host),
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, host),
     ).rejects.toMatchObject({
       reason: "unavailable",
       message: expect.stringContaining('"code":"ENOENT"'),
@@ -1130,7 +1136,7 @@ describe("native DMG command failure diagnostics", () => {
 describe("native DMG command diagnostics", () => {
   it("keeps unknown attach failures unavailable with command evidence", async () => {
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, {
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, {
         run(arguments_) {
           if (arguments_[0] === "verify")
             return Promise.resolve({ stdout: "", exitCode: 0 });
@@ -1156,7 +1162,7 @@ describe("native DMG command diagnostics", () => {
 
   it("keeps unrecognized numeric verify failures unknown and maps the observed I/O diagnostic", async () => {
     const unknown = await createAttachedReader(
-      "/tmp/image.dmg",
+      "/fixture/image.dmg",
       process.env,
       undefined,
       {
@@ -1177,7 +1183,7 @@ describe("native DMG command diagnostics", () => {
     expect(unknown.message).toContain("an unrecognized system failure");
 
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, {
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, {
         run: () =>
           Promise.resolve({
             stdout: "",
@@ -1191,7 +1197,7 @@ describe("native DMG command diagnostics", () => {
     });
 
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, {
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, {
         run: () =>
           Promise.resolve({
             stdout: "checksum output",
@@ -1207,7 +1213,7 @@ describe("native DMG command diagnostics", () => {
 
   it("distinguishes child launch and host permission failures", async () => {
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, {
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, {
         run: () =>
           Promise.reject(
             Object.assign(new Error("could not launch hdiutil"), {
@@ -1222,7 +1228,7 @@ describe("native DMG command diagnostics", () => {
     });
 
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, {
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, {
         run: () =>
           Promise.reject(
             Object.assign(new Error("permission denied"), {
@@ -1242,7 +1248,7 @@ describe("native DMG verification resource availability", () => {
   const transientFailure = {
     stdout: "",
     stderr:
-      'hdiutil: verify: unable to recognize "/tmp/image.dmg" as a disk image. (Resource temporarily unavailable)\nhdiutil: verify failed - Resource temporarily unavailable\n',
+      'hdiutil: verify: unable to recognize "/fixture/image.dmg" as a disk image. (Resource temporarily unavailable)\nhdiutil: verify failed - Resource temporarily unavailable\n',
     exitCode: 1,
   };
 
@@ -1254,7 +1260,7 @@ describe("native DMG verification resource availability", () => {
     const timeouts: number[] = [];
     let attempts = 0;
     const reader = await createAttachedReader(
-      "/tmp/image.dmg",
+      "/fixture/image.dmg",
       process.env,
       undefined,
       {
@@ -1279,12 +1285,12 @@ describe("native DMG verification resource availability", () => {
     expect(timeouts[1]).toBeLessThanOrEqual(timeouts[0]!);
     expect(reader.provenance().slice(0, 2)).toMatchObject([
       {
-        arguments: ["verify", "/tmp/image.dmg"],
+        arguments: ["verify", "/fixture/image.dmg"],
         exit_code: 1,
         effects: ["read"],
       },
       {
-        arguments: ["verify", "/tmp/image.dmg"],
+        arguments: ["verify", "/fixture/image.dmg"],
         exit_code: 0,
         effects: ["read"],
       },
@@ -1296,10 +1302,14 @@ describe("native DMG verification resource availability", () => {
   it("bounds repeated transient refusals and never attaches an unverified image", async () => {
     const run = vi.fn(async () => transientFailure);
     const delay = vi.fn(async () => {});
-    const reader = new NativeDmgArtifactReader("/tmp/image.dmg", process.env, {
-      run,
-      delay,
-    });
+    const reader = new NativeDmgArtifactReader(
+      "/fixture/image.dmg",
+      process.env,
+      {
+        run,
+        delay,
+      },
+    );
     await expect(entryPaths(reader)).rejects.toMatchObject({
       reason: "unavailable",
       message: expect.stringContaining("Resource temporarily unavailable"),
@@ -1316,12 +1326,17 @@ describe("native DMG verification resource availability", () => {
     const controller = new AbortController();
     const run = vi.fn(async () => transientFailure);
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, controller.signal, {
-        run,
-        async delay() {
-          controller.abort(new Error("cancel verification"));
+      createAttachedReader(
+        "/fixture/image.dmg",
+        process.env,
+        controller.signal,
+        {
+          run,
+          async delay() {
+            controller.abort(new Error("cancel verification"));
+          },
         },
-      }),
+      ),
     ).rejects.toMatchObject({ reason: "cancelled" });
     expect(run).toHaveBeenCalledTimes(1);
   });
@@ -1331,7 +1346,7 @@ describe("native DMG verification resource availability", () => {
     const run = vi.fn(async () => transientFailure);
     try {
       await expect(
-        createAttachedReader("/tmp/image.dmg", process.env, undefined, {
+        createAttachedReader("/fixture/image.dmg", process.env, undefined, {
           run,
           async delay() {
             clock.mockReturnValue(120_001);
@@ -1360,7 +1375,7 @@ describe("native DMG verification resource availability", () => {
     }));
     const delay = vi.fn(async () => {});
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, {
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, {
         run,
         delay,
       }),
@@ -1382,11 +1397,13 @@ describe("native DMG localized verification diagnostics", () => {
     const run = vi.fn(async () => ({
       stdout: "",
       stderr:
-        'Calculando suma de disco entero (partición desconocida: 0)…\ndisco entero (partición desconocida:: calculado CRC32 $3816B077, esperado   CRC32 $A738EA1C\nhdiutil: verify: checksum of "/tmp/image.dmg" is INVALID\nhdiutil: verify failed - suma no válida\n',
+        'Calculando suma de disco entero (partición desconocida: 0)…\ndisco entero (partición desconocida:: calculado CRC32 $3816B077, esperado   CRC32 $A738EA1C\nhdiutil: verify: checksum of "/fixture/image.dmg" is INVALID\nhdiutil: verify failed - suma no válida\n',
       exitCode: 1,
     }));
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, { run }),
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, {
+        run,
+      }),
     ).rejects.toMatchObject({
       reason: "integrity",
       message: expect.stringContaining("suma no válida"),
@@ -1495,7 +1512,9 @@ describe("native DMG localized verification diagnostics", () => {
       exitCode: 1,
     }));
     await expect(
-      createAttachedReader("/tmp/image.dmg", process.env, undefined, { run }),
+      createAttachedReader("/fixture/image.dmg", process.env, undefined, {
+        run,
+      }),
     ).rejects.toMatchObject({ reason: "unavailable" });
   });
 });
@@ -1565,16 +1584,20 @@ describe("native DMG checksum-free images", () => {
     state.detachAttempts = 4;
     const verify = vi.fn(async () => ({
       stdout: "",
-      stderr: 'hdiutil: verify: "/tmp/image.dmg" has no checksum.\n',
+      stderr: 'hdiutil: verify: "/fixture/image.dmg" has no checksum.\n',
       exitCode: 1,
     }));
-    const reader = new NativeDmgArtifactReader("/tmp/image.dmg", process.env, {
-      ...host,
-      run: (arguments_, signal, options) =>
-        arguments_[0] === "verify"
-          ? verify()
-          : host.run(arguments_, signal, options),
-    });
+    const reader = new NativeDmgArtifactReader(
+      "/fixture/image.dmg",
+      process.env,
+      {
+        ...host,
+        run: (arguments_, signal, options) =>
+          arguments_[0] === "verify"
+            ? verify()
+            : host.run(arguments_, signal, options),
+      },
+    );
     onTestFinished(() => reader.close());
     const coverage: ArtifactReaderTraversal[] = [];
     const paths: string[] = [];
@@ -1754,7 +1777,7 @@ it("owns the canonical mount root and detaches each observed whole image once", 
           stdout:
             !attached || mountPoint === undefined
               ? emptyInfoPlist
-              : infoPlist("/tmp/image.dmg", [
+              : infoPlist("/fixture/image.dmg", [
                   { "dev-entry": "/dev/disk41" },
                   { "dev-entry": "/dev/disk41s1" },
                   { "dev-entry": "/dev/disk41s2", "mount-point": mountPoint },
@@ -1785,7 +1808,7 @@ it("owns the canonical mount root and detaches each observed whole image once", 
     },
   };
   const reader = await createAttachedReader(
-    "/tmp/image.dmg",
+    "/fixture/image.dmg",
     process.env,
     undefined,
     host,
@@ -1828,7 +1851,7 @@ const apfsHost = (
               : infoReads++ === 0
                 ? [
                     {
-                      "image-path": "/tmp/image.dmg",
+                      "image-path": "/fixture/image.dmg",
                       "system-entities": [
                         { "dev-entry": "/dev/disk4" },
                         { "dev-entry": "/dev/disk4s1" },
@@ -1846,7 +1869,7 @@ const apfsHost = (
                   ? []
                   : [
                       {
-                        "image-path": "/tmp/image.dmg",
+                        "image-path": "/fixture/image.dmg",
                         "system-entities": stillListed.map((device) => ({
                           "dev-entry": device,
                         })),
@@ -1901,7 +1924,7 @@ const singleDeviceHost = (busy: (attempt: number) => boolean) => {
       if (args[0] === "info")
         return {
           stdout: state.attached
-            ? infoPlist("/tmp/image.dmg", [
+            ? infoPlist("/fixture/image.dmg", [
                 {
                   "dev-entry": "/dev/disk7",
                   "mount-point": join(state.mountRoot ?? "", "Fixture"),
@@ -1935,7 +1958,7 @@ const closeApfsFixture = async (
 }> => {
   const { calls, host } = apfsHost(...listing);
   const reader = await createAttachedReader(
-    "/tmp/image.dmg",
+    "/fixture/image.dmg",
     process.env,
     undefined,
     host,
@@ -1967,7 +1990,7 @@ describe("APFS disk image detach", () => {
   it("still fails when the device that rejected detach remains attached", async () => {
     const { host } = apfsHost(["/dev/disk4", "/dev/disk4s1"]);
     const reader = await createAttachedReader(
-      "/tmp/image.dmg",
+      "/fixture/image.dmg",
       process.env,
       undefined,
       host,
@@ -1988,7 +2011,7 @@ describe("APFS disk image detach", () => {
     let busy = true;
     const { host, state } = singleDeviceHost(() => busy);
     const reader = await createAttachedReader(
-      "/tmp/image.dmg",
+      "/fixture/image.dmg",
       process.env,
       undefined,
       host,
@@ -2033,7 +2056,7 @@ describe("DMG detach recheck", () => {
   it("detaches a device that was busy on its first attempt within one close", async () => {
     const { host, state } = singleDeviceHost((attempt) => attempt === 1);
     const reader = await createAttachedReader(
-      "/tmp/image.dmg",
+      "/fixture/image.dmg",
       process.env,
       undefined,
       host,

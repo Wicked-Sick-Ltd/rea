@@ -1230,8 +1230,9 @@ describe("CutterBridgeClient: bridge paths and native descriptor reads", () => {
   });
 
   it("prefers Windows USERPROFILE over HOME when expanding a bridge path", async () => {
-    const selectedHome = join(tmpdir(), "rea-cutter-userprofile-home");
-    const ambientHome = join(tmpdir(), "rea-cutter-ambient-home");
+    directory = await mkdtemp(join(tmpdir(), "rea-cutter-userprofile-"));
+    const selectedHome = join(directory, "selected");
+    const ambientHome = join(directory, "ambient");
     const result = await new CutterBridgeClient(
       {
         HOME: ambientHome,

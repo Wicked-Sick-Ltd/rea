@@ -99,12 +99,15 @@ export const openRegularFile = async (
   },
 ): Promise<StableRegularFileDescriptor> => {
   assertRegularFileActive(options.signal);
+  // Owner-only mode. These flags omit O_CREAT, so Node does not apply the
+  // mode to an existing file. Without a mode, this open is modeled as 0o666.
   const handle = await open(
     path,
     constants.O_RDONLY |
       (constants.O_NONBLOCK ?? 0) |
       (constants.O_NOCTTY ?? 0) |
       (options.symlinks === "reject" ? (constants.O_NOFOLLOW ?? 0) : 0),
+    0o600,
   ).catch(async (cause: unknown) => {
     const nonRegular = await nonRegularOpenFailure(
       path,

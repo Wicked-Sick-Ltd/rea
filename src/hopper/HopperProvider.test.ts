@@ -147,7 +147,7 @@ describe("Hopper relationship coverage", () => {
         {},
         "linux",
       ).createClient({
-        path: "/tmp/fixture.hop",
+        path: "/fixture/sample.hop",
         sha256: "a".repeat(64),
         kind: "database",
         format: "analysis-database",
