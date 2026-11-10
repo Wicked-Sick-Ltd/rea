@@ -245,17 +245,30 @@ const createElectronActiveBoundaryPatches = ({
     if (typeof original !== "function") return;
     process.dlopen = function patchedDlopen(module, filename, ...args) {
       let digest = null;
+      let descriptor;
       try {
         const fs = require("node:fs");
         const crypto = require("node:crypto");
-        const stat = fs.statSync(filename);
+        // Hash the opened descriptor. stat-then-readFile on the path can
+        // observe a different file than the one just checked.
+        descriptor = fs.openSync(filename, "r");
+        const stat = fs.fstatSync(descriptor);
         if (stat.isFile() && stat.size <= 16 * 1024 * 1024)
           digest = crypto
             .createHash("sha256")
-            .update(fs.readFileSync(filename))
+            .update(fs.readFileSync(descriptor))
             .digest("hex");
+        fs.closeSync(descriptor);
+        descriptor = undefined;
       } catch {
         digest = null;
+        if (descriptor !== undefined) {
+          try {
+            require("node:fs").closeSync(descriptor);
+          } catch {
+            // The digest is already unset. Keep the original dlopen attempt.
+          }
+        }
       }
       recordRuntime("native-addon", "dlopen", "attempted", {
         artifact_path: typeof filename === "string" ? filename : null,

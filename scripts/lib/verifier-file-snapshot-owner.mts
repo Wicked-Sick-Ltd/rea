@@ -1,4 +1,4 @@
-import { lstat, open } from "node:fs/promises";
+import { lstat, open, type FileHandle } from "node:fs/promises";
 
 import { ArtifactResourceScope } from "../../src/artifacts/ArtifactResourceScope.js";
 import { OwnedFileHandle } from "../../src/filesystem/OwnedFileHandle.js";
@@ -17,6 +17,27 @@ export type VerifierFileSnapshotEntry =
       readonly content: null;
     };
 
+const errorCode = (cause: unknown): unknown =>
+  cause instanceof Error && "code" in cause ? cause.code : undefined;
+
+/**
+ * `open` follows links. ENOENT means the path is absent only when `lstat`
+ * agrees; a dangling symlink still exists and must surface the open error.
+ */
+const missingSnapshotPath = async (
+  path: string,
+  cause: unknown,
+): Promise<boolean> => {
+  if (errorCode(cause) !== "ENOENT") return false;
+  try {
+    await lstat(path);
+  } catch (statCause: unknown) {
+    if (errorCode(statCause) === "ENOENT") return true;
+    throw statCause;
+  }
+  return false;
+};
+
 /** Capture source values while the command owner retains every in-flight file. */
 export async function captureVerifierFileSnapshot(
   commands: Pick<VerifierCommands, "adopt">,
@@ -29,18 +50,14 @@ export async function captureVerifierFileSnapshot(
       Promise.all(
         paths.map((path) =>
           resources.run(async (): Promise<VerifierFileSnapshotEntry> => {
+            let handle: FileHandle;
             try {
-              await lstat(path);
+              handle = await open(path, "r");
             } catch (cause: unknown) {
-              if (
-                cause instanceof Error &&
-                "code" in cause &&
-                cause.code === "ENOENT"
-              )
+              if (await missingSnapshotPath(path, cause))
                 return { path, exists: false, content: null };
               throw cause;
             }
-            const handle = await open(path, "r");
             const owner = new OwnedFileHandle(handle);
             resources.retain({
               kind: "file-handle",

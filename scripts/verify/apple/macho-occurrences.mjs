@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, readFile, stat } from "node:fs/promises";
+import { chmod } from "node:fs/promises";
 import { relative, sep } from "node:path";
 
 import { parseArtifactInventoryEvidence } from "../../../dist/domain/artifactInventoryEvidence.js";
@@ -8,11 +8,13 @@ import {
   artifactMcpCall,
   withArtifactMcp,
 } from "../../lib/artifact-e2e.mjs";
+import { readOpenedFile } from "../../lib/read-opened-file.mjs";
 
 /** Verify native file roles and permissions on the real compiled bundle fixture. */
 export async function verifyMachOOccurrences(app, executable) {
-  const originalMode = (await stat(executable)).mode & 0o7777;
-  const originalBytes = await readFile(executable);
+  const original = await readOpenedFile(executable);
+  const originalMode = original.mode;
+  const originalBytes = original.bytes;
   const logicalPath = relative(app, executable).split(sep).join("/");
   const observations = [];
   try {
@@ -74,7 +76,7 @@ export async function verifyMachOOccurrences(app, executable) {
       });
     }
     assert.equal(observations[0].artifact_id, observations[1].artifact_id);
-    assert.deepEqual(await readFile(executable), originalBytes);
+    assert.deepEqual((await readOpenedFile(executable)).bytes, originalBytes);
     return {
       direct_cli: true,
       contained_cli_mcp: true,

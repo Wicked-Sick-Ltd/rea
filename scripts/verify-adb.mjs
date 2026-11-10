@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
 import { promisify } from "node:util";
@@ -31,6 +31,19 @@ const check = (name, condition, detail = "") => {
     `[${mark}] ${name}${detail === "" ? "" : ` — ${detail}`}\n`,
   );
   if (!condition) failures += 1;
+};
+
+const digestOpenedFile = async (path) => {
+  const handle = await open(path, "r");
+  try {
+    const bytes = (await handle.stat()).size;
+    const digest = createHash("sha256")
+      .update(await handle.readFile())
+      .digest("hex");
+    return { bytes, digest };
+  } finally {
+    await handle.close();
+  }
 };
 
 const run = async (operation, input) => {
@@ -294,12 +307,9 @@ try {
             `${pull.artifacts.length} artifact(s), coverage=${pull.coverage}, roles=${pull.artifacts.map((a) => a.role).join(",")}`,
           );
           for (const artifact of pull.artifacts) {
-            const bytes = await stat(artifact.local_path).then(
-              (info) => info.size,
+            const { bytes, digest } = await digestOpenedFile(
+              artifact.local_path,
             );
-            const digest = createHash("sha256")
-              .update(await readFile(artifact.local_path))
-              .digest("hex");
             check(
               `artifact digest matches on disk: ${artifact.file_name}`,
               bytes === artifact.bytes && digest === artifact.sha256,
