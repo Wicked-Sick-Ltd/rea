@@ -552,7 +552,7 @@ if [ "$1" = "-s" ] && [ "$4" = "pm" ] && [ "$5" = "path" ]; then exit 0; fi`,
     input: {
       serial: "emulator-5554",
       package: "com.absent",
-      output_directory: "/tmp/rea-adb-absent",
+      output_directory: "/fixture/rea-adb-absent",
     },
   });
   expect(projected).toMatchObject({ code: "unsupported_target" });

@@ -120,7 +120,7 @@ describe("Hopper name inventory labels", () => {
       "linux",
     );
     const client = provider.createClient({
-      path: "/tmp/fixture.hop",
+      path: "/fixture/sample.hop",
       sha256: "a".repeat(64),
       kind: "database",
       format: "analysis-database",

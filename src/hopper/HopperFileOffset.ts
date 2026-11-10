@@ -135,7 +135,13 @@ async function snapshotFromPath(
   signal: AbortSignal | undefined,
   retainFailedClose: HopperFileOffsetOwnership["retainFailedClose"],
 ): Promise<Result<SourceSnapshot, string>> {
-  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  // Owner-only mode. O_RDONLY omits O_CREAT, so Node does not apply the
+  // mode to an existing file. Without a mode, this open is modeled as 0o666.
+  const handle = await open(
+    path,
+    constants.O_RDONLY | constants.O_NONBLOCK,
+    0o600,
+  );
   return withOwnedFileHandle(
     path,
     new OwnedFileHandle(handle),

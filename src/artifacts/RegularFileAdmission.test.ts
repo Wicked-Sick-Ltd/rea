@@ -1,6 +1,5 @@
 import type { BigIntStats, Stats } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -45,6 +44,7 @@ it("returns the original validated metadata snapshot with its actual descriptor"
     return handle;
   });
   const descriptor = await openRegularFile(path, { symlinks: "reject" });
+  expect(mockOpen).toHaveBeenCalledWith(path, expect.any(Number), 0o600);
   try {
     expect(descriptor.handle).toBe(opened);
     expect(descriptor.initial).toBe(validated);
@@ -144,7 +144,8 @@ it.each([
     const failure = Object.assign(new Error(`open ${code}`), { code, errno });
     mockOpen.mockRejectedValue(failure);
     // The selected path itself is a directory that stat can still describe.
-    const cause = await openRegularFile(tmpdir(), { symlinks: "follow" }).catch(
+    const root = await createTestTempDirectory("rea-admission-nonregular-");
+    const cause = await openRegularFile(root, { symlinks: "follow" }).catch(
       (rejected: unknown) => rejected,
     );
     if (outcome === "keeps") expect(cause).toBe(failure);
@@ -160,8 +161,9 @@ it("preserves the non-regular admission failure when cancellation arrives during
     queueMicrotask(() => controller.abort(cancellation));
     throw Object.assign(new Error("open ENXIO"), { code: "ENXIO", errno: -6 });
   });
+  const root = await createTestTempDirectory("rea-admission-probe-");
   await expect(
-    openRegularFile(tmpdir(), {
+    openRegularFile(root, {
       symlinks: "follow",
       signal: controller.signal,
     }),
