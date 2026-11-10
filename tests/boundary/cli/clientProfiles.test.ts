@@ -63,7 +63,10 @@ cliTest(
     await expect(access(join(cwdSkill, "SKILL.md"))).rejects.toMatchObject({
       code: "ENOENT",
     });
-    await expect(access(backup)).rejects.toMatchObject({ code: "ENOENT" });
+    // Read the missing file directly so absence is not a separate path check.
+    await expect(readFile(backup, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
 
     const applied = await setup(["--yes"]);
     expect(applied.exitCode, applied.stderr).toBe(0);
@@ -824,7 +827,10 @@ cliTest(
       appliedActions: [],
       remediation: expect.stringContaining(trust),
     });
-    await expect(access(user)).rejects.toMatchObject({ code: "ENOENT" });
+    // Read the missing file directly so absence is not a separate path check.
+    await expect(readFile(user, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
     await rm(trust);
     await writeFile(
       user,
