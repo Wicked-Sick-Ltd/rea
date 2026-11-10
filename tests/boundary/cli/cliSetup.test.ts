@@ -243,7 +243,10 @@ cliTest.skipIf(process.platform === "win32")(
       ],
     });
     expect(await readFile(config, "utf8")).toBe(original);
-    await expect(access(backup)).rejects.toMatchObject({ code: "ENOENT" });
+    // Read the missing file directly so absence is not a separate path check.
+    await expect(readFile(backup, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
 
     const applied = await setup("--yes");
     expect(applied.exitCode, applied.stderr).toBe(0);
