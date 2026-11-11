@@ -144,6 +144,8 @@ public final class ReaGhidraSearchPattern {
         private boolean leadingAnchor;
         /** Origin of the last unit in {@link #literals}. Escape and raw surrogates do not form one code point. */
         private boolean tailFromEscape;
+        /** A closed quote run is still in {@link #literals} and must not absorb the next atom. */
+        private boolean boundaryPending;
 
         private void markLeadingAnchor() {
             leadingAnchor = true;
@@ -164,10 +166,12 @@ public final class ReaGhidraSearchPattern {
         }
 
         private void flushLiterals() {
-            if (literals.length() == 0) return;
-            out.append(Pattern.quote(literals.toString()));
-            literals.setLength(0);
-            tailFromEscape = false;
+            if (literals.length() > 0) {
+                out.append(Pattern.quote(literals.toString()));
+                literals.setLength(0);
+                tailFromEscape = false;
+            }
+            boundaryPending = false;
         }
 
         private void flushAtom() {
@@ -191,6 +195,7 @@ public final class ReaGhidraSearchPattern {
          */
         private void appendUnit(char ch, boolean fromEscape) {
             flushAtom();
+            if (boundaryPending) flushLiterals();
             if (literals.length() > 0 &&
                 Character.isHighSurrogate(literals.charAt(literals.length() - 1)) &&
                 Character.isLowSurrogate(ch) &&
@@ -292,15 +297,20 @@ public final class ReaGhidraSearchPattern {
         }
 
         private int quoted(int index) {
+            // Quote delimiters are atom boundaries. A surrogate pair stays one
+            // code point only when both units sit in the same quoted or raw run.
+            flushLiterals();
             while (index < expression.length()) {
                 if (expression.charAt(index) == '\\' &&
                     index + 1 < expression.length() &&
                     expression.charAt(index + 1) == 'E') {
+                    boundaryPending = true;
                     return index + 2;
                 }
                 literal(expression.charAt(index));
                 index++;
             }
+            boundaryPending = true;
             return index;
         }
 

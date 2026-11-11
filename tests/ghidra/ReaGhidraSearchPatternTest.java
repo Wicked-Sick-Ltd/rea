@@ -41,6 +41,13 @@ public final class ReaGhidraSearchPatternTest {
         String mixed = emoji.substring(0, 1) + "\\uDE00";
         same(mixed, true, emoji, emoji.substring(0, 1));
         same(mixed + "+", true, emoji, emoji + emoji);
+        String high = emoji.substring(0, 1);
+        String low = emoji.substring(1);
+        same("\\Q" + emoji + "\\E", true, emoji, "x");
+        same("\\Q" + emoji + "\\E+", true, emoji, emoji + emoji, "x");
+        same(high + "\\Q" + low + "\\E", true, emoji, high);
+        same("\\Q" + high + "\\E" + low, true, emoji, high);
+        same("\\Q" + high + "\\E\\Q" + low + "\\E", true, emoji, high);
         String longAs = "a".repeat(20000);
         same("^a+b", true, longAs + "b", longAs, "b");
         if (!ReaGhidraSearchPattern.rewrite("projection.*").equals(Pattern.quote("projection") + ".*")) {
