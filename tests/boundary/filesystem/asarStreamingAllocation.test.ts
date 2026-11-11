@@ -127,9 +127,9 @@ describe("ASAR entry streaming", () => {
         const snapshot = await reader.openContainer();
         if (snapshotPath === undefined)
           throw new Error("Expected snapshot acquisition");
-        const identity = await lstat(snapshotPath);
         await buffer(snapshot);
         const probe = await openFile(snapshotPath, "r");
+        const identity = await probe.stat();
         expect(await matchingDescriptorCount(identity)).toBeGreaterThan(0);
         await probe.close();
         expect(await matchingDescriptorCount(identity)).toBe(0);
@@ -326,9 +326,9 @@ describe("ASAR read failures", () => {
       const root = await createTestTempDirectory("rea-asar-empty-close-");
       const archive = join(root, "container.asar");
       await writeFile(archive, "container bytes");
-      const identity = await lstat(archive);
       const handle = await openFile(archive, "r");
       try {
+        const identity = await handle.stat();
         expect(await matchingDescriptorCount(identity)).toBeGreaterThan(0);
         const controller = new AbortController();
 

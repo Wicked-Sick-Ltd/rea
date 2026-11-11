@@ -1,4 +1,4 @@
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { open, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it, onTestFinished, vi } from "vitest";
@@ -130,30 +130,39 @@ describe("analysis snapshots: persistence", () => {
       writeAnalysisSnapshot(snapshot, path, false, resources),
     );
     if (!written.ok) throw written.error;
-    expect((await readFile(path, "utf8")).endsWith("\n")).toBe(true);
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
-    const roundTrip = await readAnalysisSnapshot(path);
-    if (!roundTrip.ok) throw roundTrip.error;
+    let altered: unknown;
+    const published = await open(path, "r+");
+    try {
+      const text = await published.readFile("utf8");
+      expect(text.endsWith("\n")).toBe(true);
+      expect((await published.stat()).mode & 0o777).toBe(0o600);
+      const roundTrip = await readAnalysisSnapshot(path);
+      if (!roundTrip.ok) throw roundTrip.error;
 
-    const altered: unknown = JSON.parse(await readFile(path, "utf8"));
-    if (
-      typeof altered !== "object" ||
-      altered === null ||
-      !("entries" in altered) ||
-      !Array.isArray(altered.entries)
-    )
-      throw new TypeError("fixture snapshot is malformed");
-    const first: unknown = altered.entries[0];
-    if (
-      typeof first !== "object" ||
-      first === null ||
-      !("parameters" in first) ||
-      typeof first.parameters !== "object" ||
-      first.parameters === null
-    )
-      throw new TypeError("fixture entry is malformed");
-    Reflect.set(first.parameters, "address", "0x2000");
-    await writeFile(path, JSON.stringify(altered));
+      altered = JSON.parse(text);
+      if (
+        typeof altered !== "object" ||
+        altered === null ||
+        !("entries" in altered) ||
+        !Array.isArray(altered.entries)
+      )
+        throw new TypeError("fixture snapshot is malformed");
+      const first: unknown = altered.entries[0];
+      if (
+        typeof first !== "object" ||
+        first === null ||
+        !("parameters" in first) ||
+        typeof first.parameters !== "object" ||
+        first.parameters === null
+      )
+        throw new TypeError("fixture entry is malformed");
+      Reflect.set(first.parameters, "address", "0x2000");
+      const next = JSON.stringify(altered);
+      await published.truncate(Buffer.byteLength(next));
+      await published.write(next, 0, "utf8");
+    } finally {
+      await published.close();
+    }
     const loaded = await readAnalysisSnapshot(path);
     if (loaded.ok)
       throw new Error("Expected changed snapshot identity rejection");

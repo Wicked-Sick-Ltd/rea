@@ -29,10 +29,10 @@ describe("DirectoryArtifactReader.open", () => {
     const { path, reader } = await fixture();
     try {
       const entry = await sampleEntry(reader);
-      const metadata = await lstat(path, { bigint: true });
       const handle = await open(path, "r");
       try {
         const observed = await handle.stat({ bigint: true });
+        const metadata = await lstat(path, { bigint: true });
         expect(entry.sourceIdentity).toEqual({
           device: metadata.dev,
           inode: metadata.ino,
@@ -80,11 +80,17 @@ describe("DirectoryArtifactReader.open", () => {
       const { path, reader } = await fixture();
       try {
         const entry = await sampleEntry(reader);
-        const before = await lstat(path);
-        await writeFile(path, replacement);
-        await utimes(path, before.atime, new Date(before.mtimeMs + 1000));
-        const after = await lstat(path);
-        expect(after.ino).toBe(before.ino);
+        const handle = await open(path, "r+");
+        try {
+          const before = await handle.stat();
+          await handle.truncate(Buffer.byteLength(replacement));
+          await handle.write(replacement, 0, "utf8");
+          await utimes(path, before.atime, new Date(before.mtimeMs + 1000));
+          const after = await lstat(path);
+          expect(after.ino).toBe(before.ino);
+        } finally {
+          await handle.close();
+        }
         await expect(reader.open(entry)).rejects.toMatchObject({
           reason: "integrity",
           message: expect.stringContaining("changed before open"),

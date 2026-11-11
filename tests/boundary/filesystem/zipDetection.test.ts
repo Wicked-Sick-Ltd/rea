@@ -1,4 +1,4 @@
-import { lstat, mkdir, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -75,15 +75,20 @@ describe("ZIP signature detection", () => {
     image.write("koly", 0, "ascii");
     await writeFile(dmg, image);
     await writeFile(textDmg, Buffer.from("not a dmg"));
-    expect(
-      (await classifyAndHashRoot(asar, false, await lstat(asar))).format,
-    ).toBe("asar");
-    expect(
-      (await classifyAndHashRoot(textAsar, false, await lstat(textAsar)))
-        .format,
-    ).toBe("file");
-    // A valid prefix cannot admit extents outside the observed container.
-    await writeFile(asar, asarBytes.subarray(0, -1));
+    const asarFile = await open(asar, "r+");
+    try {
+      expect(
+        (await classifyAndHashRoot(asar, false, await lstat(asar))).format,
+      ).toBe("asar");
+      expect(
+        (await classifyAndHashRoot(textAsar, false, await lstat(textAsar)))
+          .format,
+      ).toBe("file");
+      // A valid prefix cannot admit extents outside the observed container.
+      await asarFile.truncate(asarBytes.length - 1);
+    } finally {
+      await asarFile.close();
+    }
     expect(
       (await classifyAndHashRoot(asar, false, await lstat(asar))).format,
     ).toBe("file");
@@ -382,24 +387,29 @@ describe("package signature byte identity", () => {
       const bytes = Buffer.alloc(size);
       bytes.write(signature, offset, "ascii");
       await writeFile(path, bytes);
-      expect(
-        (await classifyAndHashRoot(path, false, await lstat(path))).format,
-      ).toBe(extension);
-      expect(await parseBinaryTarget(path)).toMatchObject({
-        ok: true,
-        value: { format: extension },
-      });
-      for (let index = 0; index < signature.length; index += 1) {
-        const changed = Buffer.from(bytes);
-        changed[offset + index] = changed[offset + index]! | 0x80;
-        await writeFile(path, changed);
+      const file = await open(path, "r+");
+      try {
         expect(
           (await classifyAndHashRoot(path, false, await lstat(path))).format,
-        ).toBe("file");
+        ).toBe(extension);
         expect(await parseBinaryTarget(path)).toMatchObject({
-          ok: false,
-          error: { _tag: "BinaryTargetError" },
+          ok: true,
+          value: { format: extension },
         });
+        for (let index = 0; index < signature.length; index += 1) {
+          const changed = Buffer.from(bytes);
+          changed[offset + index] = changed[offset + index]! | 0x80;
+          await file.write(changed, 0, changed.length, 0);
+          expect(
+            (await classifyAndHashRoot(path, false, await lstat(path))).format,
+          ).toBe("file");
+          expect(await parseBinaryTarget(path)).toMatchObject({
+            ok: false,
+            error: { _tag: "BinaryTargetError" },
+          });
+        }
+      } finally {
+        await file.close();
       }
     },
   );
