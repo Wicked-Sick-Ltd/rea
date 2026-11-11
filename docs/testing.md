@@ -1489,7 +1489,7 @@ source-owned PE fixture, run from the repository root:
 node scripts/create-ghidra-windows-fixture.mjs
 $proofRoot = Join-Path $env:TEMP 'rea-file-offset-source-proof'
 New-Item -ItemType Directory -Path $proofRoot -Force | Out-Null
-Copy-Item bridge/ghidra/ReaGhidraBridge.java, bridge/ghidra/ReaGhidraExtensions.java, tests/conformance/ghidra/ReaFileOffsetSourceProbe.java -Destination $proofRoot
+Copy-Item bridge/ghidra/ReaGhidraBridge.java, bridge/ghidra/ReaGhidraSearchPattern.java, bridge/ghidra/ReaGhidraExtensions.java, tests/conformance/ghidra/ReaFileOffsetSourceProbe.java -Destination $proofRoot
 & "$env:GHIDRA_INSTALL_DIR/support/analyzeHeadless.bat" $proofRoot source-proof -import "$PWD/build/fixtures/rea-ghidra-windows.exe" -scriptPath $proofRoot -postScript ReaFileOffsetSourceProbe.java -deleteProject
 ```
 
