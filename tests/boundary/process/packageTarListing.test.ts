@@ -17,6 +17,7 @@ const members = [
   bridge,
   "package/bridge/cutter/rea_bridge.py",
   "package/bridge/ghidra/ReaGhidraBridge.java",
+  "package/bridge/ghidra/ReaGhidraSearchPattern.java",
   "package/bridge/ghidra/ReaGhidraBundleActivator.java",
   "package/bridge/ghidra/ReaGhidraExtensions.java",
   "package/bridge/ghidra/ReaGhidraPrepareCom.java",
