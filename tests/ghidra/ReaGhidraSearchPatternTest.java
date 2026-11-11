@@ -48,6 +48,11 @@ public final class ReaGhidraSearchPatternTest {
         same(high + "\\Q" + low + "\\E", true, emoji, high);
         same("\\Q" + high + "\\E" + low, true, emoji, high);
         same("\\Q" + high + "\\E\\Q" + low + "\\E", true, emoji, high);
+        same("a\\Q\\E+", true, "a", "aa", "aaa", "b");
+        same("\\Q\\Ea+", true, "aaa", "b");
+        same("a\\Q\\Eb", true, "ab", "a", "b");
+        same(high + "\\Q\\E" + low, true, emoji, high);
+        same("\\Q\\E", true, "", "a");
         String longAs = "a".repeat(20000);
         same("^a+b", true, longAs + "b", longAs, "b");
         if (!ReaGhidraSearchPattern.rewrite("projection.*").equals(Pattern.quote("projection") + ".*")) {

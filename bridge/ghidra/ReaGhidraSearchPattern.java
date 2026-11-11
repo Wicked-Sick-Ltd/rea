@@ -297,21 +297,29 @@ public final class ReaGhidraSearchPattern {
         }
 
         private int quoted(int index) {
-            // Quote delimiters are atom boundaries. A surrogate pair stays one
-            // code point only when both units sit in the same quoted or raw run.
-            flushLiterals();
-            while (index < expression.length()) {
-                if (expression.charAt(index) == '\\' &&
-                    index + 1 < expression.length() &&
-                    expression.charAt(index + 1) == 'E') {
-                    boundaryPending = true;
-                    return index + 2;
+            int cursor = index;
+            boolean closed = false;
+            while (cursor < expression.length()) {
+                if (expression.charAt(cursor) == '\\' &&
+                    cursor + 1 < expression.length() &&
+                    expression.charAt(cursor + 1) == 'E') {
+                    closed = true;
+                    break;
                 }
-                literal(expression.charAt(index));
-                index++;
+                cursor++;
             }
+            int contentEnd = closed ? cursor : expression.length();
+            // An empty quote is not an atom, so a following quantifier still
+            // binds to the previous one. It remains a surrogate boundary.
+            if (contentEnd == index) {
+                boundaryPending = true;
+                return closed ? cursor + 2 : cursor;
+            }
+            // A non-empty quote is its own literal run.
+            flushLiterals();
+            for (int at = index; at < contentEnd; at++) literal(expression.charAt(at));
             boundaryPending = true;
-            return index;
+            return closed ? cursor + 2 : contentEnd;
         }
 
         private int unicode(int index) {
