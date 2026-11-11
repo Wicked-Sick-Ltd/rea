@@ -6,12 +6,12 @@ import { silentLogger } from "../logger.js";
 import { ghidraProfileInstallationHost as host } from "./GhidraInstallation.fixture.js";
 import { GhidraProvider } from "./GhidraProvider.js";
 
-// Digests were computed by the unmodified upstream resolver (3ae7daa10,
-// raw branch inline) and must not change when the binary-loader policy is shared.
+// Digests include sharedAnalysisSemantics, including search_pattern_policy.
+// Update them only when that committed policy changes.
 const RAW_DIGESTS = {
-  "6502": "adbec31711f31471f9cdbdbb2fc743a0ce6b46c9be5568bf90a3f51ef46e376d",
+  "6502": "206921aaca091a5f6f1444d41ae4775a1f66e37dd704aa3b126fe5526dc82ae8",
   "x86-disabled-analyzer":
-    "493a02888eca575be286b5a96041af8007444586854edb974d6a0c12fd2768c4",
+    "d7aabfa1ce9ed79ca709aa2d45fcd5858a471b5d31df20baa1e2a38ed52aefbe",
 } as const;
 
 const configFor = (environment: NodeJS.ProcessEnv) => {
@@ -45,6 +45,7 @@ describe("raw-binary analysis profile digest", () => {
       language_selection: "caller-supplied-v1",
       load_image_evidence: "independent-raw-mapping-context-v4",
       analyzer_preset: "ghidra-default",
+      search_pattern_policy: "bounded-linear-regex-v1",
     });
   });
 
