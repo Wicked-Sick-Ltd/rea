@@ -313,6 +313,11 @@ describe("Ghidra snapshot profile admission", () => {
       legacy: "ghidra-function-boundary-limitations-v3",
     },
     {
+      parameter: "search_pattern_policy",
+      current: "bounded-linear-regex-v1",
+      legacy: undefined,
+    },
+    {
       parameter: "instruction_references",
       current: "exact-address-incoming-without-synthetic-entry-v2",
       legacy: "exact-address-incoming-v1",

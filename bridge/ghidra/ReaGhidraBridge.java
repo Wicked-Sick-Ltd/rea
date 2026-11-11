@@ -4710,10 +4710,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private static ValueMatcher regexMatcher(String expression, boolean caseSensitive) {
         Pattern pattern;
         try {
-            pattern = Pattern.compile(
-                expression,
-                caseSensitive ? 0 : Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
-            );
+            pattern = ReaGhidraSearchPattern.compile(expression, caseSensitive);
+        }
+        catch (ReaGhidraSearchPattern.Rejected rejected) {
+            throw new RequestFailure("invalid_request", rejected.getMessage());
         }
         catch (PatternSyntaxException exception) {
             // Java wraps compiler stack exhaustion in PatternSyntaxException

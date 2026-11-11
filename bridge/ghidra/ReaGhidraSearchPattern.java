@@ -1,0 +1,354 @@
+import java.util.regex.Pattern;
+
+/**
+ * Compiles a caller search pattern only after rewriting it into a bounded
+ * linear subset. {@code Pattern.compile} receives quoted literals and constant
+ * operator spellings, never the caller string.
+ *
+ * <p>Allowed: literals (including common escapes and {@code \Q...\E}), {@code .},
+ * {@code ^}, {@code $}, {@code \d \D \w \W \s \S}, and one {@code *}, {@code +},
+ * or {@code ?} quantifier, optionally reluctant ({@code ?}) or possessive
+ * ({@code +}). An unanchored quantifier must be the last construct so
+ * {@code Matcher.find} cannot rescan suffixes. Groups, alternation, character
+ * classes, repetition bounds, and a second quantifier are rejected before
+ * compilation. A quantified literal keeps its final Unicode code point intact.
+ */
+public final class ReaGhidraSearchPattern {
+    /** UTF-16 length above which a caller pattern is refused. */
+    public static final int MAX_LENGTH = 256;
+
+    private static final int ATOM_NONE = 0;
+    private static final int ATOM_DOT = 1;
+    private static final int ATOM_DIGIT = 2;
+    private static final int ATOM_NON_DIGIT = 3;
+    private static final int ATOM_WORD = 4;
+    private static final int ATOM_NON_WORD = 5;
+    private static final int ATOM_SPACE = 6;
+    private static final int ATOM_NON_SPACE = 7;
+
+    private ReaGhidraSearchPattern() {}
+
+    /** Refusal that names the caller pattern, the reason, and the source index. */
+    public static final class Rejected extends IllegalArgumentException {
+        private Rejected(String message) {
+            super(message);
+        }
+
+        static Rejected syntax(String expression, String description, int index) {
+            return new Rejected(
+                "Invalid regex pattern " + expression + ": " + description + " at index " + index
+            );
+        }
+
+        static Rejected length(int length) {
+            return new Rejected(
+                "Invalid regex pattern: pattern length " + length +
+                " exceeds " + MAX_LENGTH + " at index " + MAX_LENGTH
+            );
+        }
+    }
+
+    public static Pattern compile(String expression, boolean caseSensitive) {
+        String safe = rewrite(expression);
+        return Pattern.compile(
+            safe,
+            caseSensitive ? 0 : Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+        );
+    }
+
+    /** Pattern string that {@link #compile} actually compiles. */
+    public static String rewrite(String expression) {
+        if (expression.length() > MAX_LENGTH) throw Rejected.length(expression.length());
+        Draft draft = new Draft(expression);
+        for (int index = 0; index < expression.length();) {
+            draft.rejectIfQuantifierContinues(index);
+            char ch = expression.charAt(index);
+            if (ch == '^' && index == 0) draft.markLeadingAnchor();
+            if (ch == '\\') {
+                index = draft.escape(index);
+                continue;
+            }
+            if (ch == '^' || ch == '$') {
+                draft.flushLiterals();
+                draft.flushAtom();
+                if (ch == '^') draft.out.append("^");
+                else draft.out.append("$");
+                index++;
+                continue;
+            }
+            if (ch == '.') {
+                draft.predefined(ATOM_DOT);
+                index++;
+                continue;
+            }
+            if (ch == '*' || ch == '+' || ch == '?') {
+                index = draft.quantify(index, ch);
+                continue;
+            }
+            if (ch == '(' || ch == ')' || ch == '[' || ch == '{' || ch == '|') {
+                throw Rejected.syntax(expression, "unsupported regex syntax", index);
+            }
+            draft.literal(ch);
+            index++;
+        }
+        draft.flushLiterals();
+        draft.flushAtom();
+        return draft.out.toString();
+    }
+
+    private static void appendAtom(StringBuilder out, int atom) {
+        switch (atom) {
+            case ATOM_DOT -> out.append(".");
+            case ATOM_DIGIT -> out.append("\\d");
+            case ATOM_NON_DIGIT -> out.append("\\D");
+            case ATOM_WORD -> out.append("\\w");
+            case ATOM_NON_WORD -> out.append("\\W");
+            case ATOM_SPACE -> out.append("\\s");
+            case ATOM_NON_SPACE -> out.append("\\S");
+            default -> throw new IllegalStateException("missing predefined atom");
+        }
+    }
+
+    private static void appendQuantifier(
+            StringBuilder out,
+            char kind,
+            boolean reluctant,
+            boolean possessive) {
+        if (kind == '*') {
+            if (possessive) out.append("*+");
+            else if (reluctant) out.append("*?");
+            else out.append("*");
+            return;
+        }
+        if (kind == '+') {
+            if (possessive) out.append("++");
+            else if (reluctant) out.append("+?");
+            else out.append("+");
+            return;
+        }
+        if (kind == '?') {
+            if (possessive) out.append("?+");
+            else if (reluctant) out.append("??");
+            else out.append("?");
+            return;
+        }
+        throw new IllegalStateException("missing quantifier");
+    }
+
+    private static final class Draft {
+        private final String expression;
+        private final StringBuilder literals = new StringBuilder();
+        private final StringBuilder out = new StringBuilder();
+        private int atom = ATOM_NONE;
+        private boolean quantified;
+        private boolean leadingAnchor;
+        /** Origin of the last unit in {@link #literals}. Escape and raw surrogates do not form one code point. */
+        private boolean tailFromEscape;
+        /** A closed quote run is still in {@link #literals} and must not absorb the next atom. */
+        private boolean boundaryPending;
+
+        private void markLeadingAnchor() {
+            leadingAnchor = true;
+        }
+
+        private void rejectIfQuantifierContinues(int index) {
+            if (quantified && !leadingAnchor) {
+                throw Rejected.syntax(
+                    expression,
+                    "quantifier must end an unanchored pattern",
+                    index
+                );
+            }
+        }
+
+        private Draft(String expression) {
+            this.expression = expression;
+        }
+
+        private void flushLiterals() {
+            if (literals.length() > 0) {
+                out.append(Pattern.quote(literals.toString()));
+                literals.setLength(0);
+                tailFromEscape = false;
+            }
+            boundaryPending = false;
+        }
+
+        private void flushAtom() {
+            if (atom == ATOM_NONE) return;
+            appendAtom(out, atom);
+            atom = ATOM_NONE;
+        }
+
+        private void literal(char ch) {
+            appendUnit(ch, false);
+        }
+
+        private void escapedLiteral(char ch) {
+            appendUnit(ch, true);
+        }
+
+        /**
+         * A raw high surrogate and a following unicode-escape low surrogate are
+         * separate Java pattern atoms. Only units from the same source form one
+         * code point.
+         */
+        private void appendUnit(char ch, boolean fromEscape) {
+            flushAtom();
+            if (boundaryPending) flushLiterals();
+            if (literals.length() > 0 &&
+                Character.isHighSurrogate(literals.charAt(literals.length() - 1)) &&
+                Character.isLowSurrogate(ch) &&
+                tailFromEscape != fromEscape) {
+                flushLiterals();
+            }
+            literals.append(ch);
+            tailFromEscape = fromEscape;
+        }
+
+        private void predefined(int next) {
+            flushLiterals();
+            flushAtom();
+            atom = next;
+        }
+
+        private int quantify(int index, char kind) {
+            boolean reluctant = false;
+            boolean possessive = false;
+            if (index + 1 < expression.length()) {
+                char modifier = expression.charAt(index + 1);
+                if (modifier == '?') reluctant = true;
+                else if (modifier == '+') possessive = true;
+            }
+            if (quantified) {
+                throw Rejected.syntax(expression, "only one quantifier is supported", index);
+            }
+            if (atom != ATOM_NONE) {
+                appendAtom(out, atom);
+                appendQuantifier(out, kind, reluctant, possessive);
+                atom = ATOM_NONE;
+            }
+            else if (literals.length() > 0) {
+                int last = literals.codePointBefore(literals.length());
+                literals.setLength(literals.length() - Character.charCount(last));
+                flushLiterals();
+                out.append(Pattern.quote(new String(Character.toChars(last))));
+                appendQuantifier(out, kind, reluctant, possessive);
+            }
+            else {
+                throw Rejected.syntax(
+                    expression,
+                    "Dangling meta character '" + kind + "'",
+                    index
+                );
+            }
+            quantified = true;
+            return index + (reluctant || possessive ? 2 : 1);
+        }
+
+        private int escape(int index) {
+            if (index + 1 >= expression.length()) {
+                throw Rejected.syntax(expression, "Illegal/unsupported escape sequence", index);
+            }
+            char next = expression.charAt(index + 1);
+            switch (next) {
+                case '\\', '.', '*', '+', '?', '^', '$', '(', ')', '[', ']', '{', '}', '|':
+                    escapedLiteral(next);
+                    return index + 2;
+                case 'n':
+                    escapedLiteral('\n');
+                    return index + 2;
+                case 't':
+                    escapedLiteral('\t');
+                    return index + 2;
+                case 'r':
+                    escapedLiteral('\r');
+                    return index + 2;
+                case 'f':
+                    escapedLiteral('\f');
+                    return index + 2;
+                case 'd':
+                    predefined(ATOM_DIGIT);
+                    return index + 2;
+                case 'D':
+                    predefined(ATOM_NON_DIGIT);
+                    return index + 2;
+                case 'w':
+                    predefined(ATOM_WORD);
+                    return index + 2;
+                case 'W':
+                    predefined(ATOM_NON_WORD);
+                    return index + 2;
+                case 's':
+                    predefined(ATOM_SPACE);
+                    return index + 2;
+                case 'S':
+                    predefined(ATOM_NON_SPACE);
+                    return index + 2;
+                case 'Q':
+                    return quoted(index + 2);
+                case 'u':
+                    return unicode(index);
+                case 'x':
+                    return hexByte(index);
+                default:
+                    throw Rejected.syntax(expression, "Illegal/unsupported escape sequence", index);
+            }
+        }
+
+        private int quoted(int index) {
+            int cursor = index;
+            boolean closed = false;
+            while (cursor < expression.length()) {
+                if (expression.charAt(cursor) == '\\' &&
+                    cursor + 1 < expression.length() &&
+                    expression.charAt(cursor + 1) == 'E') {
+                    closed = true;
+                    break;
+                }
+                cursor++;
+            }
+            int contentEnd = closed ? cursor : expression.length();
+            // An empty quote is not an atom, so a following quantifier still
+            // binds to the previous one. It remains a surrogate boundary.
+            if (contentEnd == index) {
+                boundaryPending = true;
+                return closed ? cursor + 2 : cursor;
+            }
+            // A non-empty quote is its own literal run.
+            flushLiterals();
+            for (int at = index; at < contentEnd; at++) literal(expression.charAt(at));
+            boundaryPending = true;
+            return closed ? cursor + 2 : contentEnd;
+        }
+
+        private int unicode(int index) {
+            if (index + 5 >= expression.length()) {
+                throw Rejected.syntax(expression, "Illegal/unsupported escape sequence", index);
+            }
+            int code = 0;
+            for (int offset = 2; offset <= 5; offset++) {
+                int digit = Character.digit(expression.charAt(index + offset), 16);
+                if (digit < 0) {
+                    throw Rejected.syntax(expression, "Illegal/unsupported escape sequence", index);
+                }
+                code = (code << 4) | digit;
+            }
+            escapedLiteral((char) code);
+            return index + 6;
+        }
+
+        private int hexByte(int index) {
+            if (index + 3 >= expression.length() || expression.charAt(index + 2) == '{') {
+                throw Rejected.syntax(expression, "Illegal/unsupported escape sequence", index);
+            }
+            int high = Character.digit(expression.charAt(index + 2), 16);
+            int low = Character.digit(expression.charAt(index + 3), 16);
+            if (high < 0 || low < 0) {
+                throw Rejected.syntax(expression, "Illegal/unsupported escape sequence", index);
+            }
+            escapedLiteral((char) ((high << 4) | low));
+            return index + 4;
+        }
+    }
+}

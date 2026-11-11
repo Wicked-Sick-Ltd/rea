@@ -83,10 +83,19 @@ body are excluded. `procedure_references` returns internal and external edges;
 The reference collector's semantics participate in the analysis profile, so
 older snapshots cannot replay the former incomplete results under this profile.
 
-Ghidra regex searches use Java Pattern semantics. If compiling or matching a
-pattern exhausts the engine's stack, REA returns a resource constraint and
-preserves the active database and annotations. Retry in literal mode or simplify
-the regex; successful literal searches retain complete matching strings.
+Ghidra regex searches compile a bounded safe subset of Java pattern syntax:
+at most 256 characters, with literals (including common escapes and `\Q...\E`),
+`.`, `^` and `$`, the predefined classes `\d \D \w \W \s \S`, and one `*`, `+`,
+or `?` quantifier (optionally reluctant or possessive). An unanchored quantifier
+must end the pattern, so `a*b` is rejected while `^a*b` and `foo*` remain.
+Groups, alternation, character classes, repetition bounds, backreferences, and
+a second quantifier are rejected before compilation. The analysis profile records
+`search_pattern_policy: bounded-linear-regex-v1`, so a snapshot taken before
+that policy is not replayed as a current search. If compiling or matching a
+pattern still exhausts the engine's stack, REA returns a resource constraint
+and preserves the active database and annotations. Retry in literal mode or
+simplify the regex; successful literal searches retain complete matching
+strings.
 Cancelling an active request terminates the ephemeral database and discards its
 annotations. REA retains the selected target and imports the original artifact
 again on the next Ghidra query.

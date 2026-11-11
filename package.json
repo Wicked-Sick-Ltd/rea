@@ -58,6 +58,7 @@
     "bridge/process/ProcessRunTokenReader.swift",
     "bridge/process/ProcessRunTokenReaderMain.swift",
     "bridge/ghidra/ReaGhidraBridge.java",
+    "bridge/ghidra/ReaGhidraSearchPattern.java",
     "bridge/ghidra/ReaGhidraBundleActivator.java",
     "bridge/ghidra/ReaGhidraExtensions.java",
     "bridge/ghidra/ReaGhidraPrepareCom.java",
