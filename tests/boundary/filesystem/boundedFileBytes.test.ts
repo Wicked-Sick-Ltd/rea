@@ -1,4 +1,4 @@
-import { appendFile, open, writeFile } from "node:fs/promises";
+import { open, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -65,10 +65,12 @@ describe("bounded file byte reads", () => {
     const root = await createTestTempDirectory("rea-growing-bytes-");
     const path = join(root, "input");
     await writeFile(path, "0123456789");
-    const handle = await open(path, "r");
+    const handle = await open(path, "r+");
     try {
-      expect((await handle.stat()).size).toBeLessThan(12);
-      await appendFile(path, "abcdefghijklmnopqrstuvwxyz");
+      const size = (await handle.stat()).size;
+      expect(size).toBeLessThan(12);
+      const extra = Buffer.from("abcdefghijklmnopqrstuvwxyz");
+      await handle.write(extra, 0, extra.length, size);
       expect(await readBoundedFileBytes(handle, 12)).toBeUndefined();
       const next = Buffer.alloc(1);
       expect((await handle.read(next, 0, 1, null)).bytesRead).toBe(1);

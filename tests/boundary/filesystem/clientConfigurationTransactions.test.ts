@@ -3,6 +3,7 @@ import {
   copyFile,
   lstat,
   mkdir,
+  open,
   readFile,
   realpath,
   rm,
@@ -523,11 +524,16 @@ it
           })
         ).status,
       ).toBe("removed");
-      expect((await lstat(configPath)).mode & 0o777).toBe(mode);
-      expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
-        mcpServers: {},
-        keep: true,
-      });
+      const published = await open(configPath, "r");
+      try {
+        expect((await published.stat()).mode & 0o777).toBe(mode);
+        expect(JSON.parse(await published.readFile("utf8"))).toEqual({
+          mcpServers: {},
+          keep: true,
+        });
+      } finally {
+        await published.close();
+      }
     } finally {
       await host.close?.();
     }

@@ -1494,8 +1494,18 @@ it("detects same-size source rewrites with restored mtime through the opened des
   const path = await buildApk("changing.apk", [
     { path: "lib/arm64-v8a/libapp.so", bytes: aotImage() },
   ]);
-  const before = await stat(path);
-  const content = await readFile(path);
+  const readSource = async () => {
+    const source = await open(path, "r");
+    try {
+      return {
+        before: await source.stat(),
+        content: await source.readFile(),
+      };
+    } finally {
+      await source.close();
+    }
+  };
+  const { before, content } = await readSource();
   const nativeAdmission = regularFile.openRegularFile;
   const admitted = vi
     .spyOn(regularFile, "openRegularFile")
