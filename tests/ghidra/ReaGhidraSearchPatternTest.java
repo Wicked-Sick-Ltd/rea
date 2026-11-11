@@ -38,6 +38,9 @@ public final class ReaGhidraSearchPatternTest {
         same(emoji + "+", true, emoji, emoji + emoji, emoji + "x", "x");
         same("a" + emoji + "+", true, "a" + emoji + emoji, "a" + emoji, emoji);
         same("\\uD83D\\uDE00+", true, emoji, emoji + emoji, "x");
+        String mixed = emoji.substring(0, 1) + "\\uDE00";
+        same(mixed, true, emoji, emoji.substring(0, 1));
+        same(mixed + "+", true, emoji, emoji + emoji);
         String longAs = "a".repeat(20000);
         same("^a+b", true, longAs + "b", longAs, "b");
         if (!ReaGhidraSearchPattern.rewrite("projection.*").equals(Pattern.quote("projection") + ".*")) {

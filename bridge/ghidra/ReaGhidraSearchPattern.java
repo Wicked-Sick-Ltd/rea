@@ -142,6 +142,8 @@ public final class ReaGhidraSearchPattern {
         private int atom = ATOM_NONE;
         private boolean quantified;
         private boolean leadingAnchor;
+        /** Origin of the last unit in {@link #literals}. Escape and raw surrogates do not form one code point. */
+        private boolean tailFromEscape;
 
         private void markLeadingAnchor() {
             leadingAnchor = true;
@@ -165,6 +167,7 @@ public final class ReaGhidraSearchPattern {
             if (literals.length() == 0) return;
             out.append(Pattern.quote(literals.toString()));
             literals.setLength(0);
+            tailFromEscape = false;
         }
 
         private void flushAtom() {
@@ -174,8 +177,28 @@ public final class ReaGhidraSearchPattern {
         }
 
         private void literal(char ch) {
+            appendUnit(ch, false);
+        }
+
+        private void escapedLiteral(char ch) {
+            appendUnit(ch, true);
+        }
+
+        /**
+         * A raw high surrogate and a following unicode-escape low surrogate are
+         * separate Java pattern atoms. Only units from the same source form one
+         * code point.
+         */
+        private void appendUnit(char ch, boolean fromEscape) {
             flushAtom();
+            if (literals.length() > 0 &&
+                Character.isHighSurrogate(literals.charAt(literals.length() - 1)) &&
+                Character.isLowSurrogate(ch) &&
+                tailFromEscape != fromEscape) {
+                flushLiterals();
+            }
             literals.append(ch);
+            tailFromEscape = fromEscape;
         }
 
         private void predefined(int next) {
@@ -225,19 +248,19 @@ public final class ReaGhidraSearchPattern {
             char next = expression.charAt(index + 1);
             switch (next) {
                 case '\\', '.', '*', '+', '?', '^', '$', '(', ')', '[', ']', '{', '}', '|':
-                    literal(next);
+                    escapedLiteral(next);
                     return index + 2;
                 case 'n':
-                    literal('\n');
+                    escapedLiteral('\n');
                     return index + 2;
                 case 't':
-                    literal('\t');
+                    escapedLiteral('\t');
                     return index + 2;
                 case 'r':
-                    literal('\r');
+                    escapedLiteral('\r');
                     return index + 2;
                 case 'f':
-                    literal('\f');
+                    escapedLiteral('\f');
                     return index + 2;
                 case 'd':
                     predefined(ATOM_DIGIT);
@@ -293,7 +316,7 @@ public final class ReaGhidraSearchPattern {
                 }
                 code = (code << 4) | digit;
             }
-            literal((char) code);
+            escapedLiteral((char) code);
             return index + 6;
         }
 
@@ -306,7 +329,7 @@ public final class ReaGhidraSearchPattern {
             if (high < 0 || low < 0) {
                 throw Rejected.syntax(expression, "Illegal/unsupported escape sequence", index);
             }
-            literal((char) ((high << 4) | low));
+            escapedLiteral((char) ((high << 4) | low));
             return index + 4;
         }
     }

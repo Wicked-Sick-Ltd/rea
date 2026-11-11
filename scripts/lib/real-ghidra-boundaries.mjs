@@ -785,7 +785,7 @@ export async function verifyGhidraBoundaries(
     annotation_native_text_validation: true,
     lossless_unicode_transport: true,
     exact_external_entry_resolution: true,
-    recoverable_regex_stack_exhaustion: true,
+    bounded_regex_rejection_preserves_session: true,
     complete_function_body_references: true,
     ambiguity_candidates_inline: true,
     legacy_reference_snapshot_rejected: true,
