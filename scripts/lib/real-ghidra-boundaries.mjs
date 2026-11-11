@@ -555,7 +555,7 @@ export async function verifyGhidraBoundaries(
       assert.equal(error.code, 1);
       const rejected = JSON.parse(error.stdout);
       assert.equal(rejected.code, "invalid_request");
-      assert.equal(rejected.details.operation, "search_procedures");
+      assert.equal(rejected.details.operation, "search_strings");
       assert.match(
         JSON.stringify(rejected.details.issues),
         /unsupported regex syntax at index 1/u,
