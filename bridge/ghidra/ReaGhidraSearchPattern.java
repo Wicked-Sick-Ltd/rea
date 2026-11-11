@@ -8,8 +8,10 @@ import java.util.regex.Pattern;
  * <p>Allowed: literals (including common escapes and {@code \Q...\E}), {@code .},
  * {@code ^}, {@code $}, {@code \d \D \w \W \s \S}, and one {@code *}, {@code +},
  * or {@code ?} quantifier, optionally reluctant ({@code ?}) or possessive
- * ({@code +}). Groups, alternation, character classes, repetition bounds, and
- * a second quantifier are rejected before compilation.
+ * ({@code +}). An unanchored quantifier must be the last construct so
+ * {@code Matcher.find} cannot rescan suffixes. Groups, alternation, character
+ * classes, repetition bounds, and a second quantifier are rejected before
+ * compilation. A quantified literal keeps its final Unicode code point intact.
  */
 public final class ReaGhidraSearchPattern {
     /** UTF-16 length above which a caller pattern is refused. */
@@ -59,7 +61,9 @@ public final class ReaGhidraSearchPattern {
         if (expression.length() > MAX_LENGTH) throw Rejected.length(expression.length());
         Draft draft = new Draft(expression);
         for (int index = 0; index < expression.length();) {
+            draft.rejectIfQuantifierContinues(index);
             char ch = expression.charAt(index);
+            if (ch == '^' && index == 0) draft.markLeadingAnchor();
             if (ch == '\\') {
                 index = draft.escape(index);
                 continue;
@@ -137,6 +141,21 @@ public final class ReaGhidraSearchPattern {
         private final StringBuilder out = new StringBuilder();
         private int atom = ATOM_NONE;
         private boolean quantified;
+        private boolean leadingAnchor;
+
+        private void markLeadingAnchor() {
+            leadingAnchor = true;
+        }
+
+        private void rejectIfQuantifierContinues(int index) {
+            if (quantified && !leadingAnchor) {
+                throw Rejected.syntax(
+                    expression,
+                    "quantifier must end an unanchored pattern",
+                    index
+                );
+            }
+        }
 
         private Draft(String expression) {
             this.expression = expression;
@@ -182,10 +201,10 @@ public final class ReaGhidraSearchPattern {
                 atom = ATOM_NONE;
             }
             else if (literals.length() > 0) {
-                char last = literals.charAt(literals.length() - 1);
-                literals.setLength(literals.length() - 1);
+                int last = literals.codePointBefore(literals.length());
+                literals.setLength(literals.length() - Character.charCount(last));
                 flushLiterals();
-                out.append(Pattern.quote(String.valueOf(last)));
+                out.append(Pattern.quote(new String(Character.toChars(last))));
                 appendQuantifier(out, kind, reluctant, possessive);
             }
             else {

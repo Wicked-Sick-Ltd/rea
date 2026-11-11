@@ -34,7 +34,7 @@ it("compiles only the bounded safe search subset", async () => {
     const ran = await execute(java, ["-cp", output, "ReaGhidraSearchPatternTest"], {
       cwd: root,
     });
-    expect(ran.stdout).toBe("ok\n");
+    expect(ran.stdout.replaceAll("\r\n", "\n")).toBe("ok\n");
     expect(ran.stderr ?? "").toBe("");
   } finally {
     await rm(output, { recursive: true, force: true });

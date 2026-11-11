@@ -54,7 +54,7 @@ const stringInventoryLimitation =
   "Only Ghidra-defined string Data is observed; packed or undefined string bytes may be absent. Completeness applies to that inventory, and an empty search does not establish that text is absent from the artifact. If an address is known, use read_bytes and xrefs to inspect bytes and references.";
 
 const searchLimitation =
-  "Regex mode compiles a bounded safe subset: at most 256 characters, literals, dot, anchors, digit/word/whitespace classes, and one quantifier. Groups, alternation, character classes, and further quantifiers are rejected before compilation. Matcher or compiler stack exhaustion still returns a resource constraint without closing the session; literal mode avoids regex recursion and returns complete matching values.";
+  "Regex mode compiles a bounded safe subset: at most 256 characters, literals, dot, anchors, digit/word/whitespace classes, and one quantifier. An unanchored quantifier must end the pattern. Groups, alternation, character classes, a quantifier with a required suffix, and further quantifiers are rejected before compilation. Matcher or compiler stack exhaustion still returns a resource constraint without closing the session; literal mode avoids regex recursion and returns complete matching values.";
 
 /** Limitation text for one admitted operation, including the common base. */
 export const limitationsFor = (operation: string): readonly string[] => {

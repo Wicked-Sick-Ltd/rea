@@ -26,12 +26,20 @@ public final class ReaGhidraSearchPatternTest {
         same("a}", true, "a}", "a");
         same("^a$", true, "a", "ba", "ab");
         same("", true, "abc", "");
-        same("a.*b", true, "axb", "a\nb", "ab", "zzaxxxb");
+        same("a.*", true, "axb", "a", "b");
+        same("^a.*b", true, "axb", "a\nb", "ab", "zzaxxxb");
         same("\\n", true, "\n", "n");
         same("Foo", false, "foo", "FOO", "bar");
         same(".*", true, "", "abc", "a\nb");
         same("^.*", true, "abc", "");
-        same(".*$", true, "abc", "");
+        same("^.*$", true, "abc", "");
+        String emoji = "\uD83D\uDE00";
+        same(emoji, true, emoji, "x");
+        same(emoji + "+", true, emoji, emoji + emoji, emoji + "x", "x");
+        same("a" + emoji + "+", true, "a" + emoji + emoji, "a" + emoji, emoji);
+        same("\\uD83D\\uDE00+", true, emoji, emoji + emoji, "x");
+        String longAs = "a".repeat(20000);
+        same("^a+b", true, longAs + "b", longAs, "b");
         if (!ReaGhidraSearchPattern.rewrite("projection.*").equals(Pattern.quote("projection") + ".*")) {
             throw new AssertionError(ReaGhidraSearchPattern.rewrite("projection.*"));
         }
@@ -46,8 +54,13 @@ public final class ReaGhidraSearchPatternTest {
         rejects("a|b", "unsupported regex syntax", 1);
         rejects("(a+)+", "unsupported regex syntax", 0);
         rejects("^(a|aa)*b$", "unsupported regex syntax", 1);
-        rejects("a*b*", "only one quantifier is supported", 3);
-        rejects(".*foo.*", "only one quantifier is supported", 6);
+        rejects("^a*b*", "only one quantifier is supported", 4);
+        rejects("a*b*", "quantifier must end an unanchored pattern", 2);
+        rejects("a*b", "quantifier must end an unanchored pattern", 2);
+        rejects("a+b", "quantifier must end an unanchored pattern", 2);
+        rejects(".*$", "quantifier must end an unanchored pattern", 2);
+        rejects("a.*b", "quantifier must end an unanchored pattern", 3);
+        rejects(".*foo.*", "quantifier must end an unanchored pattern", 2);
         rejects("a{2}", "unsupported regex syntax", 1);
         rejects("*", "Dangling meta character '*'", 0);
         rejects("+", "Dangling meta character '+'", 0);
