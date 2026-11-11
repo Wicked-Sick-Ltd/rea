@@ -31,9 +31,13 @@ it("compiles only the bounded safe search subset", async () => {
       { cwd: root },
     );
     expect(compiled.stderr ?? "").toBe("");
-    const ran = await execute(java, ["-cp", output, "ReaGhidraSearchPatternTest"], {
-      cwd: root,
-    });
+    const ran = await execute(
+      java,
+      ["-cp", output, "ReaGhidraSearchPatternTest"],
+      {
+        cwd: root,
+      },
+    );
     expect(ran.stdout.replaceAll("\r\n", "\n")).toBe("ok\n");
     expect(ran.stderr ?? "").toBe("");
   } finally {
