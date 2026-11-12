@@ -177,7 +177,10 @@ it
       expect(output).toMatchObject({
         remediation: { action: expect.stringContaining("read access") },
       });
-      await expect(lstat(launched)).rejects.toMatchObject({ code: "ENOENT" });
+      // Read the missing marker directly so absence is not a separate path check.
+      await expect(readFile(launched, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
       await chmod(denied, 0o700);
       const evidence = await (
         adapter === "cli" ? captureViaCli : captureViaMcp

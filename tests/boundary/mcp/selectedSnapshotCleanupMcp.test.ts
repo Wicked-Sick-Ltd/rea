@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { open, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 
@@ -13,6 +13,29 @@ import {
   createSessionMcpHarness,
   type SessionMcpHarness,
 } from "./sessionMcpHarness.js";
+
+/** Read the current path through one descriptor. */
+const bytesOf = async (path: string): Promise<Buffer> => {
+  const file = await open(path, "r");
+  try {
+    return await file.readFile();
+  } finally {
+    await file.close();
+  }
+};
+
+/** Snapshot bytes and identity from one descriptor. */
+const readSnapshotIdentity = async (path: string) => {
+  const published = await open(path, "r");
+  try {
+    return {
+      snapshotBytes: await published.readFile(),
+      selectedIdentity: await published.stat(),
+    };
+  } finally {
+    await published.close();
+  }
+};
 
 const query = {
   name: "address_name",
@@ -68,13 +91,13 @@ it("retains a selected snapshot descriptor through MCP cleanup discovery and sam
       first,
       snapshotPath,
     );
-    const snapshotBytes = await readFile(snapshotPath);
+    const { snapshotBytes, selectedIdentity } =
+      await readSnapshotIdentity(snapshotPath);
     const snapshot = parseAnalysisSnapshot(
       JSON.parse(snapshotBytes.toString("utf8")),
     );
     expect(snapshot.entries).toHaveLength(1);
     const targetBytes = await readFile(first);
-    const selectedIdentity = await stat(snapshotPath);
     const priorCalls = [...calls];
     const priorStarts = starts;
     const nativeClose = OwnedFileHandle.prototype.close;
@@ -175,7 +198,7 @@ it("retains a selected snapshot descriptor through MCP cleanup discovery and sam
     expect(replayEvidence.evidence_id).not.toBe(originalEvidence.evidence_id);
     expect(starts).toBe(priorStarts);
     expect(calls).toEqual(priorCalls);
-    expect(Buffer.compare(await readFile(snapshotPath), snapshotBytes)).toBe(0);
+    expect(Buffer.compare(await bytesOf(snapshotPath), snapshotBytes)).toBe(0);
     expect(Buffer.compare(await readFile(first), targetBytes)).toBe(0);
   } finally {
     restoreClose();

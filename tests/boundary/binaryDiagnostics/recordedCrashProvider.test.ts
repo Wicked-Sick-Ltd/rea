@@ -1,6 +1,6 @@
 import type { AnalysisError } from "../../../src/domain/analysisErrorBase.js";
 import type { RecordedCrash } from "../../../src/domain/native/recordedCrash.js";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
@@ -30,6 +30,16 @@ import {
 } from "../../fixtures/binaryDiagnostics/recordedCrash.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import { ProviderCleanupError } from "../../../src/domain/providerCleanupError.js";
+
+/** Read the current path through one descriptor. */
+const bytesOf = async (path: string): Promise<Buffer> => {
+  const file = await open(path, "r");
+  try {
+    return await file.readFile();
+  } finally {
+    await file.close();
+  }
+};
 
 const requestSchema = z.object({
   snapshot_path: z.string(),
@@ -352,7 +362,7 @@ it
       scenario === "cancelled-exec-foreign"
     ) {
       await expect(access(owned)).resolves.toBeUndefined();
-      expect(Buffer.compare(await readFile(snapshotPath), bytes)).toBe(0);
+      expect(Buffer.compare(await bytesOf(snapshotPath), bytes)).toBe(0);
       const refused = await provider.inspect({
         path,
         include_debugger_context: true,
