@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createPackageWithOptions } from "@electron/asar";
@@ -340,11 +340,15 @@ describe("snapshot publication finalization", () => {
           (record) => record.operation === "read_bytes",
         );
         expect(evidence).toBeDefined();
-        const receipt = {
-          path: snapshotPath,
-          bytes: (await stat(snapshotPath)).size,
-        };
-        expect((await readFile(snapshotPath)).byteLength).toBe(receipt.bytes);
+        const snapshot = await open(snapshotPath, "r");
+        let bytes = 0;
+        try {
+          bytes = (await snapshot.stat()).size;
+          expect((await snapshot.readFile()).byteLength).toBe(bytes);
+        } finally {
+          await snapshot.close();
+        }
+        const receipt = { path: snapshotPath, bytes };
         if (mode === "success") expect(result).toEqual(evidence);
         else {
           const failure = analysisCliErrorEnvelopeSchema.parse(result);

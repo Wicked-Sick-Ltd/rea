@@ -71,6 +71,7 @@ it("reserves the inspection work budget before reading aliased HIP payloads", as
     id.copy(directory, at + 24);
   }
   const file = await open(path, "w+");
+  const prototype = Object.getPrototypeOf(file) as { read: ReadFile };
   try {
     await file.write(directory, 0, directory.length, 0);
     await file.write(payload, 0, payload.length, start);
@@ -78,9 +79,6 @@ it("reserves the inspection work budget before reading aliased HIP payloads", as
   } finally {
     await file.close();
   }
-  const handle = await open(path, "r"),
-    prototype = Object.getPrototypeOf(handle) as { read: ReadFile };
-  await handle.close();
   const read = prototype.read;
   let payloadReads = 0;
   const spy = vi.spyOn(prototype, "read").mockImplementation(async function (

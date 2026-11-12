@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import {
+  lstat,
   open,
-  readFile,
   rename,
   writeFile,
   type FileHandle,
@@ -246,10 +246,14 @@ it.each(carriers)(
     const handle = await open(path, "r");
     const close = vi.spyOn(handle, "close");
     let reader: ReturnType<typeof carrier.reader> | undefined;
+    let replaced: FileHandle | undefined;
     try {
       const replacement = join(dirname(path), "replacement.bin");
       const replacementBytes = carrier.bytes("replacement source\n");
-      await writeFile(replacement, replacementBytes);
+      replaced = await open(replacement, "wx+");
+      expect((await replaced.write(replacementBytes)).bytesWritten).toBe(
+        replacementBytes.length,
+      );
       await rename(replacement, path);
       reader = carrier.reader(path, {
         handle,
@@ -264,7 +268,18 @@ it.each(carriers)(
       await reader.close();
       expect(close).not.toHaveBeenCalled();
       expect(handle.fd).toBeGreaterThanOrEqual(0);
-      expect(Buffer.compare(await readFile(path), replacementBytes)).toBe(0);
+      const named = await lstat(path);
+      const current = await replaced.stat();
+      expect(named.dev).toBe(current.dev);
+      expect(named.ino).toBe(current.ino);
+      expect(current.size).toBe(replacementBytes.length);
+      const observed = Buffer.alloc(replacementBytes.length);
+      expect(
+        (await replaced.read(observed, 0, observed.length, 0)).bytesRead,
+      ).toBe(replacementBytes.length);
+      expect(Buffer.compare(observed, replacementBytes)).toBe(0);
+      await replaced.close();
+      replaced = undefined;
       expect(control.handles.size).toBe(1);
       await handle.close();
       expect(close).toHaveBeenCalledOnce();
@@ -273,9 +288,13 @@ it.each(carriers)(
       expect(close).toHaveBeenCalledOnce();
     } finally {
       try {
-        await reader?.close();
+        await replaced?.close();
       } finally {
-        if (handle.fd >= 0) await handle.close();
+        try {
+          await reader?.close();
+        } finally {
+          if (handle.fd >= 0) await handle.close();
+        }
       }
     }
   },
