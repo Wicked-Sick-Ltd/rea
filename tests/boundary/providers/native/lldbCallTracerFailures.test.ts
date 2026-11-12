@@ -5,7 +5,6 @@ import {
   rm,
   writeFile,
   open,
-  stat,
   type FileHandle,
 } from "node:fs/promises";
 import { ChildProcess } from "node:child_process";
@@ -1737,10 +1736,11 @@ const controlReadbackDescriptor = async (options: {
   readonly reason: unknown;
   readonly physicalFailure: Error;
 }) => {
-  const selectedStat = await stat(options.path);
   const probe = await open(options.path, "r");
+  const selectedStat = await probe.stat().finally(async () => {
+    await probe.close();
+  });
   const prototype = Object.getPrototypeOf(probe) as FileHandle;
-  await probe.close();
   let captured: FileHandle | undefined;
   let originalClose: (() => Promise<void>) | undefined;
   let allowClose = false;

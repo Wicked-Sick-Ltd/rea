@@ -5,6 +5,7 @@ import {
   copyFile,
   lstat,
   mkdir,
+  open,
   readFile,
   rename,
   rm,
@@ -171,11 +172,21 @@ const registerSignatureIdentityGuardCases = () => {
         if (!args.includes("--entitlements")) return;
         if (change === "remove") await rm(path);
         else if (change === "rewrite") {
-          const before = await lstat(path);
-          await writeFile(path, CONTENT);
-          // Identical writes may share a filesystem clock tick. Make the
-          // metadata change observed by the target guard explicit.
-          await utimes(path, before.atimeMs / 1000, before.mtimeMs / 1000 + 1);
+          const file = await open(path, "r+");
+          try {
+            const before = await file.stat();
+            await file.truncate(Buffer.byteLength(CONTENT));
+            await file.write(CONTENT, 0, "utf8");
+            // Identical writes may share a filesystem clock tick. Make the
+            // metadata change observed by the target guard explicit.
+            await utimes(
+              path,
+              before.atimeMs / 1000,
+              before.mtimeMs / 1000 + 1,
+            );
+          } finally {
+            await file.close();
+          }
         } else {
           const replacement = `${path}.replacement`;
           await writeFile(replacement, CONTENT);

@@ -24,6 +24,29 @@ import {
   removeTestWorkspace,
 } from "../../support/workspace/workspaceFixture.js";
 
+/** Bytes and identity of one regular file, from a single descriptor. */
+const observeRegularFile = async (path: string) => {
+  const file = await open(path, "r");
+  try {
+    const metadata = await file.stat({ bigint: true });
+    const bytes = Buffer.alloc(Number(metadata.size));
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesRead } = await file.read(
+        bytes,
+        offset,
+        bytes.length - offset,
+        offset,
+      );
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    return { bytes: bytes.subarray(0, offset), metadata };
+  } finally {
+    await file.close();
+  }
+};
+
 const fixture = async (wal = false) => {
   const workspace = await createTestWorkspace("rea-sqlite-snapshot-race-");
   const database = createSqliteDatabaseFixture(workspace.root, wal);
@@ -59,26 +82,25 @@ it.runIf(SQLITE_NATIVE_LIMITS_AVAILABLE).each(["PERSIST", "TRUNCATE"])(
       writer.close();
     }
     const journalPath = `${database.path}-journal`;
-    const before = await readFile(journalPath);
-    const beforeStat = await lstat(journalPath, { bigint: true });
+    const before = await observeRegularFile(journalPath);
     const snapshot = await capture();
     const result = inspectSqliteDatabaseSnapshot(snapshot.snapshotPath, {
       path: database.path,
       table: "records",
     });
     expect(result.rows).toMatchObject({ returned_rows: 4, truncated: false });
-    expect(Buffer.compare(await readFile(journalPath), before)).toBe(0);
-    const afterStat = await lstat(journalPath, { bigint: true });
+    const after = await observeRegularFile(journalPath);
+    expect(Buffer.compare(after.bytes, before.bytes)).toBe(0);
     expect([
-      afterStat.ino,
-      afterStat.size,
-      afterStat.mtimeNs,
-      afterStat.ctimeNs,
+      after.metadata.ino,
+      after.metadata.size,
+      after.metadata.mtimeNs,
+      after.metadata.ctimeNs,
     ]).toEqual([
-      beforeStat.ino,
-      beforeStat.size,
-      beforeStat.mtimeNs,
-      beforeStat.ctimeNs,
+      before.metadata.ino,
+      before.metadata.size,
+      before.metadata.mtimeNs,
+      before.metadata.ctimeNs,
     ]);
   },
 );

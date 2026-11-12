@@ -19,6 +19,16 @@ const observed = <Value>(promise: Promise<Value>) =>
     (cause: unknown) => ({ ok: false as const, cause }),
   );
 
+/** Read the current path through one descriptor. */
+const bytesOf = async (path: string): Promise<Buffer> => {
+  const file = await open(path, "r");
+  try {
+    return await file.readFile();
+  } finally {
+    await file.close();
+  }
+};
+
 const deferred = () => {
   let resolve!: () => void;
   const promise = new Promise<void>((finish) => {
@@ -259,8 +269,8 @@ it("retries only the failed exact file capability after a peer releases, retaini
   expect(peerHandle.fd).toBe(-1);
   expect(commands.cleanupResources).toEqual([]);
   expect(existsSync(directory)).toBe(true);
-  expect(Buffer.compare(await readFile(artifact), bytes)).toBe(0);
-  expect(Buffer.compare(await readFile(peerArtifact), bytes)).toBe(0);
+  expect(Buffer.compare(await bytesOf(artifact), bytes)).toBe(0);
+  expect(Buffer.compare(await bytesOf(peerArtifact), bytes)).toBe(0);
 });
 
 it("refuses new owners and commands after successful close while leaving new resources with their caller", async () => {
@@ -319,7 +329,9 @@ it("refuses new owners and commands after successful close while leaving new res
   expect(commands.cleanupResources).toEqual([]);
   expect(existsSync(forbidden)).toBe(false);
   expect(existsSync(directory)).toBe(true);
-  expect(await readFile(artifact, "utf8")).toBe("caller-owned evidence");
+  expect((await bytesOf(artifact)).toString("utf8")).toBe(
+    "caller-owned evidence",
+  );
 });
 
 it.skipIf(process.platform === "win32")(
