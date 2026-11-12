@@ -6,6 +6,7 @@ import {
   lstat,
   open,
   readdir,
+  rename,
   rm,
   utimes,
   writeFile,
@@ -63,10 +64,15 @@ it("does not hash a replacement file using the earlier path metadata", async () 
   const directory = await mkdtemp(join(tmpdir(), "rea-snapshot-identity-"));
   const path = join(directory, "observed-file");
   try {
+    const replacement = join(directory, "replacement");
     await writeFile(path, "captured file\n");
+    await writeFile(
+      replacement,
+      "replacement with a different identity and size\n",
+    );
     const expected = await lstat(path);
     await rm(path);
-    await writeFile(path, "replacement with a different identity and size\n");
+    await rename(replacement, path);
 
     await expect(hashFile(path, expected, 1_000)).resolves.toEqual({
       state: "omitted",
@@ -156,9 +162,9 @@ it.skipIf(process.platform === "win32")(
     const path = join(directory, "observed-file");
     try {
       await writeFile(path, "captured file\n");
-      const expected = await lstat(path);
-      const controller = new AbortController();
       const held = await open(path, "r");
+      const expected = await held.stat();
+      const controller = new AbortController();
       expect(await countOpenDescriptorsFor(path)).toBe(1);
       await held.close();
       expect(await countOpenDescriptorsFor(path)).toBe(0);

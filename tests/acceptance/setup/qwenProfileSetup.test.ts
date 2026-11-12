@@ -41,7 +41,10 @@ cliTest(
       ],
     });
     expect(await readFile(settings, "utf8")).toBe(original);
-    await expect(access(skill)).rejects.toMatchObject({ code: "ENOENT" });
+    // Read the missing file directly so absence is not a separate path check.
+    await expect(readFile(skill, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
 
     const installed = await run(["setup", "--client", "qwen_code", "--yes"]);
     expect(installed.exitCode, installed.stderr).toBe(0);
