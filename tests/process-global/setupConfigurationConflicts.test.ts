@@ -2,6 +2,7 @@ import {
   chmod,
   lstat,
   mkdir,
+  open,
   readFile,
   readdir,
   rename,
@@ -255,8 +256,13 @@ it("detects a replacement of the original file even when its contents are identi
       format: "json",
     }),
   ).toMatchObject({ status: "failed", reason: "conflict" });
-  expect((await lstat(path)).ino).toBe(replacementInode);
-  expect(await readFile(path, "utf8")).toBe("{}\n");
+  const observed = await open(path, "r");
+  try {
+    expect((await observed.stat()).ino).toBe(replacementInode);
+    expect(await observed.readFile("utf8")).toBe("{}\n");
+  } finally {
+    await observed.close();
+  }
 });
 
 it.skipIf(process.platform === "win32")(
