@@ -61,7 +61,7 @@ do not establish fewer tokens or faster analysis.
 
 ## Development
 
-Use [.nvmrc](.nvmrc) and `package.json#packageManager` for the pinned toolchain. Cursor Cloud may place older Node.js first on `PATH`; environment setup installs the pinned toolchain under `/usr/local/bin`. Prefix `PATH="/usr/local/bin:$PATH"` before `node` and `npm`.
+Use [.nvmrc](.nvmrc) and `package.json#packageManager` for the pinned toolchain. Cursor Cloud may place older Node.js first on `PATH`. Environment setup installs that Node.js under `/opt/nodejs` and links it from `/usr/local/bin`. Prefix `PATH="/opt/nodejs/bin:$PATH"` before `node` and `npm` so the selected executable is `/opt/nodejs/bin/node`.
 
 - `npm ci`: install locked dependencies.
 - `npm run build:cached`: build the runtime and packaged skill.
@@ -73,6 +73,14 @@ Use [.nvmrc](.nvmrc) and `package.json#packageManager` for the pinned toolchain.
 Use relevant checks for the change. The complete local gate, `npm run check:pr`, is optional for broad changes or CI diagnosis. See [CONTRIBUTING.md](CONTRIBUTING.md) for development, generated-file ownership, and release conventions.
 
 Coordinate expensive checks across agents. If a test unexpectedly consumes heavy CPU, stop its owned process family and profile a bounded representative case before retrying. Inspect production work, fixture generation, subprocesses, and repeated setup; preserve regression coverage when optimizing. Follow the [test resource guidance](docs/testing.md#developer-commands).
+
+## Cloud agent environment
+
+Cursor Cloud Agents bootstrap this checkout with [`.cursor/install.sh`](.cursor/install.sh), invoked from [`.cursor/environment.json`](.cursor/environment.json) as `bash .cursor/install.sh`. The script is idempotent and non-interactive. It installs the Node.js release named in [`.nvmrc`](.nvmrc) under `/opt/nodejs`, links `node` and `npm` into `/usr/local/bin`, activates the npm release named by `package.json#packageManager`, and installs dependencies with `npm ci`. It also installs `python3`, a procps-compatible `ps`, and a C toolchain for native addons.
+
+Prefix `PATH="/opt/nodejs/bin:$PATH"` before `node` and `npm`. The agent image may place an older Node.js earlier on `PATH`. The `/usr/local/bin` links are only a fallback: setup records the `node` it finds, and the suite treats a command path under `/usr` as a foreign executable.
+
+There is no dev server to start. Install and the default typecheck, lint, test, and build scripts do not need model API keys. Hopper, Ghidra, and IDA remain bring-your-own and are not installed.
 
 `docs/public/product-catalog.json`, `docs/verification/managed-conformance-*.json`, and `skills/` are ignored outputs. Edit source contracts and `.agents/skills/reverse-engineer-anything/`, then regenerate as needed. `.cache/mcp-tool-catalog.json` is test metadata; runtime builds and source checking do not consume it. Never commit binaries, provider project documents, credentials, `dist/`, `node_modules/`, or local planning artifacts.
 
