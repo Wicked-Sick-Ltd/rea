@@ -66,7 +66,7 @@ previous increment.
   inventory; no MCP tool is added.
 - Add the `agentenv` CI scope, the reusable `real-agentenv.yml` workflow
   (`workflow_dispatch` and `workflow_call` with `build_cache_artifact`,
-  `ubuntu-24.04`, SHA-pinned actions, `setup-python` 3.12, a virtual
+  `ubuntu-24.04`, SHA-pinned actions, `setup-python` 3.13, a virtual
   environment with `agentenv-framework==0.9.1334`, the runner's Docker, 30
   minutes), the `verify:agentenv:environment` script and
   `scripts/verify-agentenv-environment.mjs`, which requires absolute

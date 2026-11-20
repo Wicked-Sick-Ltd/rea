@@ -913,6 +913,42 @@ it("routes website verification through the central PR policy", async () => {
   expect(ci.jobs.website.if).toBe("needs.changes.outputs.website == 'true'");
 });
 
+it("pins CI setup-python to 3.13", async () => {
+  const workflowSchema = z.object({
+    jobs: z.record(
+      z.string(),
+      z
+        .object({
+          steps: z
+            .array(
+              z
+                .object({
+                  uses: z.string().optional(),
+                  with: z.record(z.string(), z.unknown()).optional(),
+                })
+                .passthrough(),
+            )
+            .optional(),
+        })
+        .passthrough(),
+    ),
+  });
+  for (const relativePath of [
+    "../../../.github/workflows/website-check.yml",
+    "../../../.github/workflows/real-agentenv.yml",
+  ]) {
+    const workflow = workflowSchema.parse(
+      parse(await readFile(new URL(relativePath, import.meta.url), "utf8")),
+    );
+    const versions = Object.values(workflow.jobs).flatMap((job) =>
+      (job.steps ?? [])
+        .filter((step) => step.uses?.startsWith("actions/setup-python@"))
+        .map((step) => step.with?.["python-version"]),
+    );
+    expect(versions).toEqual(["3.13"]);
+  }
+});
+
 // The rehearsal executes the retained archive on a new read-only runner; the
 // process boundary suite exercises its real installation and protocol checks.
 it("rehearses the qualified archive before npm authority and retains registry verification", async () => {
